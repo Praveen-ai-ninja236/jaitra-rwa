@@ -359,6 +359,10 @@ export interface DLMember {
   status: DLMemberStatus;
   role_tag?: string; // Owner | Tenant | Committee | Volunteer | Resident
   notes?: string;
+  group_name?: string;
+  group_code?: string;
+  active_groups?: Array<{ id: number; name: string; code: string }>;
+  inactive_groups?: Array<{ id: number; name: string; code: string }>;
   created_at?: string;
 }
 

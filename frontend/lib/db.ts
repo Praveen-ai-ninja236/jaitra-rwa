@@ -1669,6 +1669,11 @@ export async function ensureDLTables(): Promise<void> {
       const cultureGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-CULTURE'");
       const twaGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWA'");
       const twbGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWB'");
+      const twcGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWC'");
+      const twdGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWD'");
+      const tweGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWE'");
+      const twfGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWF'");
+      const emergGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-EMERGENCY'");
 
       const sampleMembers = [
         { name: "Praveen Rao", tower: "Tower A", flat: "1204", email: "praveen.rao@jaitra.org", phone: "+91 98450 71001", status: "Active", role: "Owner" },
@@ -1740,6 +1745,62 @@ export async function ensureDLTables(): Promise<void> {
           );
         }
       }
+
+      if (twcGroup.length > 0) {
+        const twcGid = twcGroup[0].id;
+        for (const m of sampleMembers.filter((m) => m.tower === "Tower C")) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Tower C resident')`,
+            [twcGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (twdGroup.length > 0) {
+        const twdGid = twdGroup[0].id;
+        for (const m of sampleMembers.filter((m) => m.tower === "Tower D")) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Tower D resident')`,
+            [twdGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (tweGroup.length > 0) {
+        const tweGid = tweGroup[0].id;
+        for (const m of sampleMembers.filter((m) => m.tower === "Tower E")) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Tower E resident')`,
+            [tweGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (twfGroup.length > 0) {
+        const twfGid = twfGroup[0].id;
+        for (const m of sampleMembers.filter((m) => m.tower === "Tower F")) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Tower F resident')`,
+            [twfGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (emergGroup.length > 0) {
+        const emergGid = emergGroup[0].id;
+        for (const m of sampleMembers.slice(0, 8)) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Emergency contact')`,
+            [emergGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+    }
     }
   } catch (err) {
     console.error("ensureDLTables error:", err);
@@ -1897,7 +1958,44 @@ export async function getDLMembers(
     }
     query += " ORDER BY m.tower ASC, m.flat_no ASC, m.name ASC";
 
-    return await runQuery(query, params);
+    const [members, allMemberships] = await Promise.all([
+      runQuery(query, params),
+      runQuery(`
+        SELECT m.email, m.group_id, m.status, g.group_name, g.group_code
+        FROM dl_members m
+        JOIN dl_groups g ON m.group_id = g.id
+      `),
+    ]);
+
+    const activeGroupsByEmail: Record<string, Array<{ id: number; name: string; code: string }>> = {};
+    const inactiveGroupsByEmail: Record<string, Array<{ id: number; name: string; code: string }>> = {};
+
+    for (const row of allMemberships) {
+      const email = (row.email || "").trim().toLowerCase();
+      if (!email) continue;
+      if (!activeGroupsByEmail[email]) activeGroupsByEmail[email] = [];
+      if (!inactiveGroupsByEmail[email]) inactiveGroupsByEmail[email] = [];
+
+      const groupObj = { id: row.group_id, name: row.group_name, code: row.group_code };
+      if (row.status === "Active") {
+        if (!activeGroupsByEmail[email].some((g) => g.id === row.group_id)) {
+          activeGroupsByEmail[email].push(groupObj);
+        }
+      } else {
+        if (!inactiveGroupsByEmail[email].some((g) => g.id === row.group_id)) {
+          inactiveGroupsByEmail[email].push(groupObj);
+        }
+      }
+    }
+
+    return members.map((m: any) => {
+      const email = (m.email || "").trim().toLowerCase();
+      return {
+        ...m,
+        active_groups: activeGroupsByEmail[email] || [{ id: m.group_id, name: m.group_name, code: m.group_code }],
+        inactive_groups: inactiveGroupsByEmail[email] || [],
+      };
+    });
   } catch (err) {
     console.error("getDLMembers error:", err);
     return [];
