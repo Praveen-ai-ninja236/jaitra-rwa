@@ -32,6 +32,7 @@ import {
   UserRole,
   VendorContract,
   VendorContractCreate,
+  AuditLogEntry,
 } from "./types";
 
 const API_BASE_URL =
@@ -522,6 +523,27 @@ export async function updateVendorContract(
 export async function deleteVendorContract(id: number): Promise<{ message: string }> {
   return fetchJSON<{ message: string }>(`/api/vendors/${id}`, {
     method: "DELETE",
+  });
+}
+
+// ----------------- 10. AUDIT LOG -----------------
+export async function getAuditLogs(limit?: number): Promise<AuditLogEntry[]> {
+  const url = limit ? `/api/audit-log?limit=${limit}` : "/api/audit-log";
+  return fetchJSON<AuditLogEntry[]>(url);
+}
+
+export async function createAuditLog(entry: {
+  user_name?: string;
+  user_role?: string;
+  action: string;
+  entity_type: string;
+  entity_id?: number | null;
+  entity_label?: string;
+  details?: string;
+}): Promise<{ message: string }> {
+  return fetchJSON<{ message: string }>("/api/audit-log", {
+    method: "POST",
+    body: JSON.stringify(entry),
   });
 }
 

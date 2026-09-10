@@ -7,6 +7,8 @@ import {
   ADOCommentCreate,
   ADOAttachmentCreate,
   UserRole,
+  DropdownCategoryMap,
+  TeamMember,
 } from "../lib/types";
 import {
   Kanban,
@@ -38,10 +40,12 @@ import {
   Table,
   ArrowUpDown,
   Edit,
+  Eye,
 } from "lucide-react";
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
 import FileUploadInput from "./FileUploadInput";
+import DocumentPreviewModal from "./DocumentPreviewModal";
 
 interface ADOBorderPendingsTabProps {
   tasks: ADOTask[];
@@ -54,6 +58,8 @@ interface ADOBorderPendingsTabProps {
   onDeleteAttachment: (attachmentId: number) => Promise<void>;
   isLoading: boolean;
   userRole?: UserRole;
+  dropdownMap?: DropdownCategoryMap;
+  teamMembers?: TeamMember[];
 }
 
 export default function ADOBorderPendingsTab({
@@ -67,8 +73,11 @@ export default function ADOBorderPendingsTab({
   onDeleteAttachment,
   isLoading,
   userRole = "Super Admin",
+  dropdownMap = {},
+  teamMembers = [],
 }: ADOBorderPendingsTabProps) {
   const canEdit = userRole === "Super Admin" || userRole === "Admin";
+  const teamMemberNames = teamMembers.map((m) => m.name).filter(Boolean);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEntity, setSelectedEntity] = useState<string>("All");
   const [selectedPriority, setSelectedPriority] = useState("All");
@@ -84,6 +93,7 @@ export default function ADOBorderPendingsTab({
   const [activeTaskDetail, setActiveTaskDetail] = useState<ADOTask | null>(null);
   const [taskDetailTab, setTaskDetailTab] = useState<"discussion" | "evidence" | "edit">("discussion");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string } | null>(null);
 
   // New ADO Task Form State
   const [formData, setFormData] = useState<ADOTaskCreate>({
@@ -129,18 +139,9 @@ export default function ADOBorderPendingsTab({
     { id: "Closed", title: "Closed & Signed-off", headerBorder: "border-indigo-500/40", badgeBg: "bg-indigo-950 text-indigo-300 border border-indigo-700/60", dotColor: "bg-indigo-400" },
   ];
 
-  const defaultCategories = [
-    "Seepage & Waterproofing",
-    "Fire NOC & Compliance",
-    "STP & WTP Operations",
-    "Lifts & Elevators",
-    "Solar & Electrical Grid",
-    "CCTV & Gate Automation",
-    "Clubhouse & Amenities",
-    "Landscaping & Boundary",
-  ];
+  const defaultCategories = dropdownMap["ado_categories"]?.length ? dropdownMap["ado_categories"] : ["Seepage & Waterproofing", "Fire NOC & Compliance", "STP & WTP Operations", "Lifts & Elevators", "Solar & Electrical Grid", "CCTV & Gate Automation", "Clubhouse & Amenities", "Landscaping & Boundary"];
 
-  const defaultEntities = ["Builder", "IGS", "Joint Taskforce", "Association Oversight"];
+  const defaultEntities = dropdownMap["ado_entities"]?.length ? dropdownMap["ado_entities"] : ["Builder", "IGS", "Joint Taskforce", "Association Oversight"];
   const defaultPriorities = ["Critical", "High", "Medium", "Low"];
   const defaultStatuses = ["New", "Active", "Resolved", "Closed"];
 
@@ -890,11 +891,10 @@ export default function ADOBorderPendingsTab({
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
                       <label className="block text-[10px] font-semibold text-slate-400 mb-1">Your Name</label>
-                      <input
-                        type="text"
+                      <DynamicSelect
                         value={commentAuthor}
-                        onChange={(e) => setCommentAuthor(e.target.value)}
-                        className="w-full text-xs p-2 rounded-xl bg-slate-800 border border-slate-700 text-white"
+                        onChange={setCommentAuthor}
+                        options={teamMemberNames.length ? teamMemberNames : ["Vikram Patel", "Rajesh Sharma", "Karthik Venkatesh"]}
                       />
                     </div>
                     <div>
@@ -1018,16 +1018,24 @@ export default function ADOBorderPendingsTab({
                         <div className="flex items-center gap-2.5">
                           <FileText className="w-4 h-4 text-amber-400 shrink-0" />
                           <div>
-                            <a
-                              href={att.file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="font-bold text-white hover:text-sky-300 hover:underline flex items-center gap-1"
-                            >
-                              <span>{att.file_name}</span>
-                              <ExternalLink className="w-3 h-3 text-sky-400" />
-                            </a>
-                            <p className="text-[11px] text-slate-400">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white">{att.file_name}</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPreviewDoc({
+                                    url: att.file_url,
+                                    title: `Evidence Document: ${att.file_name}`,
+                                  })
+                                }
+                                className="inline-flex items-center gap-1 text-[11px] font-black text-amber-400 hover:text-amber-300 bg-amber-950/80 hover:bg-amber-900 border border-amber-600/80 px-2 py-0.5 rounded-lg transition"
+                                title="View Attached Evidence / Inspection Report"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>View Document</span>
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
                               {att.description || "Evidence attachment"} • Uploaded by {att.uploaded_by} on {att.created_at}
                             </p>
                           </div>
@@ -1132,13 +1140,11 @@ export default function ADOBorderPendingsTab({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Assigned Engineer / POC</label>
-              <input
-                type="text"
-                value={formData.assignee_name}
-                onChange={(e) => setFormData({ ...formData, assignee_name: e.target.value })}
-                placeholder="e.g., Er. K. Verma / Suresh R."
-                className="w-full text-xs p-2.5 border rounded-xl bg-slate-800 border-slate-700 text-white"
+              <DynamicSelect
+                label="Assignee Name"
+                value={formData.assignee_name || ""}
+                onChange={(val) => setFormData({ ...formData, assignee_name: val })}
+                options={teamMemberNames.length ? teamMemberNames : ["Er. K. Verma", "Mr. D. Srinivasan", "Mr. Suresh R.", "Kishore N."]}
               />
             </div>
 
@@ -1280,12 +1286,11 @@ export default function ADOBorderPendingsTab({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Assigned POC</label>
-                <input
-                  type="text"
+                <DynamicSelect
+                  label="Assignee Name"
                   value={editingTask.assignee_name || ""}
-                  onChange={(e) => setEditingTask({ ...editingTask, assignee_name: e.target.value })}
-                  className="w-full text-xs p-2.5 border rounded-xl bg-slate-800 border-slate-700 text-white"
+                  onChange={(val) => setEditingTask({ ...editingTask, assignee_name: val })}
+                  options={teamMemberNames.length ? teamMemberNames : ["Er. K. Verma", "Mr. D. Srinivasan", "Mr. Suresh R.", "Kishore N."]}
                 />
               </div>
 
@@ -1338,6 +1343,14 @@ export default function ADOBorderPendingsTab({
           </form>
         </Modal>
       )}
+
+      {/* Reusable Evidence & Document Preview Modal */}
+      <DocumentPreviewModal
+        isOpen={Boolean(previewDoc)}
+        onClose={() => setPreviewDoc(null)}
+        url={previewDoc?.url}
+        title={previewDoc?.title}
+      />
     </div>
   );
 }

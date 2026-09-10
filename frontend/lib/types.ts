@@ -1,4 +1,4 @@
-export type UserRole = "Super Admin" | "Admin" | "User";
+export type UserRole = "Super Admin" | "Admin" | "Staff" | "User";
 
 export interface AppUser {
   id: number;
@@ -286,4 +286,61 @@ export interface AuditTransaction {
   status: string;
   evidence_url?: string;
   approver?: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  user_name: string;
+  user_role: string;
+  action: "CREATE" | "UPDATE" | "DELETE";
+  entity_type: string;
+  entity_id: number | null;
+  entity_label: string;
+  details: string;
+  ip_address: string;
+  created_at: string;
+}
+
+export type AuditLogEntryCreate = Omit<AuditLogEntry, "id" | "created_at">;
+
+export interface FlatFestivalStatus {
+  festival_id: number;
+  festival_name: string;
+  status: "Done" | "Not Done";
+  amount?: number;
+  donations_count?: number;
+  transactions?: FestivalCollection[];
+  date?: string;
+  mode?: string;
+  receipt_url?: string;
+}
+
+export interface FlatSummaryItem {
+  id: string;
+  tower: string;
+  floor: number | string;
+  flat_no: string;
+  display_label: string;
+  resident_name?: string;
+  resident_email?: string;
+  resident_phone?: string;
+  resident_role?: string;
+  is_registered_user: boolean;
+  total_donations: number;
+  donations_count: number;
+  festivals_status: Record<number, FlatFestivalStatus>;
+  total_complaints: number;
+  open_complaints: number;
+  in_progress_complaints: number;
+  resolved_complaints: number;
+  complaints_list: CommunityIssue[];
+  total_events_participated: number;
+  events_list: Array<{
+    event_id: number;
+    event_title: string;
+    participant_name: string;
+    activity_category?: string;
+    registration_date?: string;
+  }>;
+  total_gbm_attended: number;
 }

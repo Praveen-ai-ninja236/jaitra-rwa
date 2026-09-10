@@ -1,7 +1,17 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import { UploadCloud, FileText, CheckCircle2, AlertCircle, Trash2, Eye, ExternalLink } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import {
+  UploadCloud,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  Trash2,
+  Eye,
+  ExternalLink,
+  Loader2,
+  Image as ImageIcon,
+} from "lucide-react";
 
 interface FileUploadInputProps {
   label?: string;
@@ -11,47 +21,139 @@ interface FileUploadInputProps {
   helpText?: string;
 }
 
+// Client-side image compression and conversion (converts iPhone HEIC/PNG/JPG to optimized web JPEG)
+function compressImageToJpeg(file: File, maxDim = 1920, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Canvas context not available"));
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const jpegData = canvas.toDataURL("image/jpeg", quality);
+      resolve(jpegData);
+    };
+    img.onerror = (err) => {
+      URL.revokeObjectURL(url);
+      reject(err);
+    };
+    img.src = url;
+  });
+}
+
 export default function FileUploadInput({
   label = "Upload Bill / Invoice / Document",
   value = "",
   onChange,
   required = false,
-  helpText = "Upload PDF, PNG, JPG, or Invoice receipts (Max 5MB)",
+  helpText = "iPhone Photos (HEIC, JPG, JPEG, PNG) or PDF / Office files (Max 25MB)",
 }: FileUploadInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string>("");
   const [fileSize, setFileSize] = useState<string>("");
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    if (!value) {
+      setFileName("");
+      setFileSize("");
+      setUploadStatus("idle");
+      setStatusMessage("");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }, [value]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
+    // 25MB upper limit for raw camera captures
+    if (file.size > 25 * 1024 * 1024) {
       setUploadStatus("error");
-      setStatusMessage("File size exceeds 5MB limit. Please upload a smaller file.");
+      setStatusMessage("File exceeds 25MB limit. Please choose a smaller photo or document.");
       return;
     }
 
-    const sizeInKB = (file.size / 1024).toFixed(1) + " KB";
-    setFileName(file.name);
-    setFileSize(sizeInKB);
+    setUploadStatus("processing");
+    setStatusMessage(`Optimizing "${file.name}"...`);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      onChange(result, file.name);
+    const isImage =
+      file.type.startsWith("image/") ||
+      /\.(jpe?g|png|webp|heic|heif|bmp|gif)$/i.test(file.name);
+
+    try {
+      let finalDataUrl = "";
+      let finalSizeStr = "";
+      let outName = file.name;
+
+      if (isImage) {
+        try {
+          finalDataUrl = await compressImageToJpeg(file, 1920, 0.85);
+          const approxBytes = (finalDataUrl.length * 3) / 4;
+          finalSizeStr =
+            approxBytes > 1024 * 1024
+              ? (approxBytes / (1024 * 1024)).toFixed(1) + " MB"
+              : (approxBytes / 1024).toFixed(1) + " KB";
+
+          if (/\.(heic|heif)$/i.test(outName)) {
+            outName = outName.replace(/\.(heic|heif)$/i, ".jpg");
+          }
+        } catch {
+          // Direct base64 fallback for un-decodable raw images
+          finalDataUrl = await readFileAsDataUrl(file);
+          finalSizeStr = (file.size / 1024).toFixed(1) + " KB";
+        }
+      } else {
+        finalDataUrl = await readFileAsDataUrl(file);
+        finalSizeStr = (file.size / 1024).toFixed(1) + " KB";
+      }
+
+      setFileName(outName);
+      setFileSize(finalSizeStr);
+      onChange(finalDataUrl, outName);
       setUploadStatus("success");
-      setStatusMessage(`"${file.name}" attached successfully (${sizeInKB})`);
-    };
-    reader.onerror = () => {
+      setStatusMessage(`"${outName}" attached successfully (${finalSizeStr})`);
+    } catch (err) {
+      console.error("File reading error:", err);
       setUploadStatus("error");
-      setStatusMessage("Failed to read file. Please try again.");
-    };
-    reader.readAsDataURL(file);
+      setStatusMessage("Failed to process file. Please try another photo or format.");
+    }
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleClear = (e: React.MouseEvent) => {
@@ -65,6 +167,10 @@ export default function FileUploadInput({
       fileInputRef.current.value = "";
     }
   };
+
+  const isImageAttachment =
+    value?.startsWith("data:image") ||
+    /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(fileName || value || "");
 
   return (
     <div className="space-y-1.5">
@@ -82,6 +188,8 @@ export default function FileUploadInput({
             ? "border-emerald-600/70 bg-emerald-950/20 hover:bg-emerald-950/30"
             : uploadStatus === "error"
             ? "border-red-600/70 bg-red-950/20"
+            : uploadStatus === "processing"
+            ? "border-sky-500/70 bg-sky-950/20"
             : "border-slate-700 hover:border-sky-500 bg-slate-800/60 hover:bg-slate-800"
         }`}
       >
@@ -89,15 +197,21 @@ export default function FileUploadInput({
           type="file"
           ref={fileInputRef}
           onChange={handleFileChange}
-          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+          accept="image/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.bmp,.gif,.pdf,.doc,.docx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden"
         />
 
-        {value || fileName ? (
+        {uploadStatus === "processing" ? (
+          <div className="flex flex-col items-center justify-center py-2">
+            <Loader2 className="w-6 h-6 text-sky-400 animate-spin mb-1" />
+            <p className="text-xs font-bold text-sky-200">Processing &amp; Optimizing Photo...</p>
+            <p className="text-[11px] text-slate-400">Converting for instant cloud sync</p>
+          </div>
+        ) : value || fileName ? (
           <div className="w-full flex items-center justify-between gap-3 text-left">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-9 h-9 rounded-lg bg-emerald-950 border border-emerald-700 flex items-center justify-center text-emerald-400 shrink-0">
-                <FileText className="w-5 h-5" />
+                {isImageAttachment ? <ImageIcon className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-bold text-slate-200 truncate">
@@ -136,24 +250,28 @@ export default function FileUploadInput({
           <div className="flex flex-col items-center justify-center py-1">
             <UploadCloud className="w-7 h-7 text-sky-400 mb-1.5 animate-bounce" />
             <p className="text-xs font-semibold text-slate-200">
-              Click to browse or drag & drop invoice / bill
+              Click to browse or take/upload photo (iPhone HEIC &amp; JPG supported)
             </p>
             <p className="text-[11px] text-slate-400 mt-0.5">{helpText}</p>
           </div>
         )}
       </div>
 
-      {/* Success / Error Message Banner */}
+      {/* Success / Error / Processing Message Banner */}
       {statusMessage && (
         <div
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium animate-fadeIn ${
             uploadStatus === "success"
               ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800/60"
+              : uploadStatus === "processing"
+              ? "bg-sky-950/60 text-sky-300 border border-sky-800/60"
               : "bg-red-950/60 text-red-300 border border-red-800/60"
           }`}
         >
           {uploadStatus === "success" ? (
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          ) : uploadStatus === "processing" ? (
+            <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
           ) : (
             <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
           )}
@@ -167,7 +285,12 @@ export default function FileUploadInput({
           <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <FileText className="w-4 h-4 text-sky-400" /> Attached Bill / Document Preview
+                {isImageAttachment ? (
+                  <ImageIcon className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <FileText className="w-4 h-4 text-sky-400" />
+                )}
+                <span>Attached Document / Receipt Preview</span>
               </h3>
               <button
                 type="button"
@@ -179,8 +302,12 @@ export default function FileUploadInput({
             </div>
 
             <div className="max-h-[60vh] overflow-auto flex items-center justify-center p-2 bg-slate-950 rounded-xl border border-slate-800">
-              {value && value.startsWith("data:image") ? (
-                <img src={value} alt="Bill Preview" className="max-h-[50vh] max-w-full rounded-lg object-contain" />
+              {isImageAttachment ? (
+                <img
+                  src={value}
+                  alt="Bill / Receipt Preview"
+                  className="max-h-[50vh] max-w-full rounded-lg object-contain"
+                />
               ) : value && value.startsWith("data:application/pdf") ? (
                 <iframe src={value} className="w-full h-[50vh] rounded-lg" title="PDF Preview" />
               ) : (

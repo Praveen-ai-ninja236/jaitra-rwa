@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { GeneralBodyMeeting, GeneralBodyMeetingCreate, UserRole } from "../lib/types";
+import { GeneralBodyMeeting, GeneralBodyMeetingCreate, UserRole, DropdownCategoryMap } from "../lib/types";
 import {
   FileText,
   Calendar,
@@ -22,10 +22,12 @@ import {
   ExternalLink,
   Edit,
   Paperclip,
+  Eye,
 } from "lucide-react";
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
 import FileUploadInput from "./FileUploadInput";
+import DocumentPreviewModal from "./DocumentPreviewModal";
 
 interface GeneralBodyMeetingsTabProps {
   meetings: GeneralBodyMeeting[];
@@ -34,6 +36,8 @@ interface GeneralBodyMeetingsTabProps {
   onDeleteMeeting: (id: number) => Promise<void>;
   isLoading: boolean;
   userRole?: UserRole;
+  isGuest?: boolean;
+  dropdownMap?: DropdownCategoryMap;
 }
 
 export default function GeneralBodyMeetingsTab({
@@ -43,13 +47,17 @@ export default function GeneralBodyMeetingsTab({
   onDeleteMeeting,
   isLoading,
   userRole = "Super Admin",
+  isGuest = false,
+  dropdownMap = {},
 }: GeneralBodyMeetingsTabProps) {
   const canEdit = userRole === "Super Admin" || userRole === "Admin";
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("All");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<GeneralBodyMeeting | null>(null);
+  const [viewingMeeting, setViewingMeeting] = useState<GeneralBodyMeeting | null>(null);
   const [expandedMeetingId, setExpandedMeetingId] = useState<number | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form State for New Meeting
@@ -67,13 +75,8 @@ export default function GeneralBodyMeetingsTab({
     doc_link: "",
   });
 
-  const defaultMeetingTypes = ["AGM", "EGM", "Quarterly GBM", "Special Committee", "MC Monthly"];
-  const defaultVenues = [
-    "Clubhouse Grand Banquet Hall",
-    "Clubhouse Studio 1",
-    "Amphitheatre",
-    "Zoom Hybrid Online",
-  ];
+  const defaultMeetingTypes = dropdownMap["meeting_types"]?.length ? dropdownMap["meeting_types"] : ["AGM", "EGM", "Quarterly GBM", "Special Committee", "MC Monthly"];
+  const defaultVenues = dropdownMap["meeting_venues"]?.length ? dropdownMap["meeting_venues"] : ["Clubhouse Grand Banquet Hall", "Clubhouse Studio 1", "Amphitheatre", "Zoom Hybrid Online"];
   const defaultQuorumStatuses = ["Quorum Met (Full)", "Quorum Met (Partial)", "Quorum Pending", "Special Session"];
 
   const filteredMeetings = useMemo(() => {
@@ -239,8 +242,14 @@ export default function GeneralBodyMeetingsTab({
                     </div>
 
                     <h3
-                      onClick={() => setEditingMeeting(m)}
-                      className="text-lg sm:text-xl font-extrabold text-white leading-snug cursor-pointer hover:text-sky-300 transition"
+                      onClick={() => {
+                        if (isGuest) {
+                          setViewingMeeting(m);
+                        } else {
+                          setEditingMeeting(m);
+                        }
+                      }}
+                      className="text-lg sm:text-xl font-extrabold text-white leading-snug transition cursor-pointer hover:text-sky-300"
                     >
                       {m.meeting_title}
                     </h3>
@@ -303,15 +312,20 @@ export default function GeneralBodyMeetingsTab({
                     &quot;{m.minutes_summary || "Official minutes approved by General Body."}&quot;
                   </p>
                   {m.doc_link && (
-                    <a
-                      href={m.doc_link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1 text-[11px] font-bold text-sky-400 hover:text-sky-300 hover:underline ml-3 shrink-0"
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewDoc({
+                          url: m.doc_link!,
+                          title: `Signed Minutes: ${m.meeting_title}`,
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-950/90 hover:bg-sky-900 border border-sky-600 text-sky-300 hover:text-white rounded-xl text-xs font-black transition shadow-sm ml-3 shrink-0"
+                      title="View Signed Minutes & Resolutions Document"
                     >
-                      <Download className="w-3 h-3" />
-                      <span>Signed Minutes PDF</span>
-                    </a>
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View Minutes Document</span>
+                    </button>
                   )}
                 </div>
 
@@ -654,6 +668,91 @@ export default function GeneralBodyMeetingsTab({
           </div>
         </form>
       </Modal>
+
+      {/* Read-Only Detail Modal for Guests */}
+      {viewingMeeting && (
+        <Modal
+          isOpen={Boolean(viewingMeeting)}
+          onClose={() => setViewingMeeting(null)}
+          title={viewingMeeting.meeting_title}
+          subtitle="View-only mode — sign in to edit meeting records"
+          maxWidth="xl"
+        >
+          <div className="space-y-4 text-xs">
+            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase">Meeting Type</span>
+                <p className="text-sm font-bold text-white mt-0.5">{viewingMeeting.meeting_type}</p>
+              </div>
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase">Date</span>
+                <p className="text-sm font-bold text-white mt-0.5">{viewingMeeting.meeting_date}</p>
+              </div>
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase">Time</span>
+                <p className="text-sm font-bold text-white mt-0.5">{viewingMeeting.time}</p>
+              </div>
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase">Venue</span>
+                <p className="text-sm font-bold text-white mt-0.5">{viewingMeeting.venue}</p>
+              </div>
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase">Quorum Status</span>
+                <p className="text-sm font-bold text-white mt-0.5">{viewingMeeting.quorum_status}</p>
+              </div>
+              <div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase">Attendees</span>
+                <p className="text-sm font-bold text-white mt-0.5">{viewingMeeting.attendees_count} Members</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase">Key Agenda</span>
+              <p className="text-xs text-slate-200 mt-1 whitespace-pre-wrap leading-relaxed">{viewingMeeting.key_agenda}</p>
+            </div>
+
+            <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase">Resolutions Passed</span>
+              <p className="text-xs text-slate-200 mt-1 whitespace-pre-wrap leading-relaxed">{viewingMeeting.resolutions_passed}</p>
+            </div>
+
+            <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase">Minutes Summary</span>
+              <p className="text-xs text-slate-200 mt-1 whitespace-pre-wrap leading-relaxed">{viewingMeeting.minutes_summary}</p>
+            </div>
+
+            {viewingMeeting.doc_link && (
+              <div className="p-3 bg-sky-950/60 rounded-xl border border-sky-800/60 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-sky-400 uppercase">Attached Minutes / Document</span>
+                  <p className="text-xs text-slate-200 mt-0.5">Signed Official Resolution File</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPreviewDoc({
+                      url: viewingMeeting.doc_link!,
+                      title: `Signed Minutes: ${viewingMeeting.meeting_title}`,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-black transition shadow-md"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>View Document</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Document & Minutes Preview Modal */}
+      <DocumentPreviewModal
+        isOpen={Boolean(previewDoc)}
+        onClose={() => setPreviewDoc(null)}
+        url={previewDoc?.url}
+        title={previewDoc?.title}
+      />
     </div>
   );
 }

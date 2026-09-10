@@ -14,6 +14,7 @@ import {
   X,
   Crown,
   Lock,
+  Mail,
 } from "lucide-react";
 import { AppUser, UserRole } from "../lib/types";
 
@@ -57,6 +58,16 @@ export default function Navbar({
 
           {/* Right: Desktop Actions */}
           <div className="hidden md:flex items-center gap-2 lg:gap-3">
+            {/* Email Contact */}
+            <a
+              href="mailto:jaitra-association-hyd@googlegroups.com"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 hover:text-sky-400 transition rounded-lg"
+              title="Contact Association"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">jaitra-association-hyd@googlegroups.com</span>
+            </a>
+
             {/* Sync DB Button */}
             <button
               onClick={onRefresh}
@@ -124,6 +135,8 @@ export default function Navbar({
                         ? "bg-amber-500 text-slate-950"
                         : currentUser.role === "Admin"
                         ? "bg-indigo-950 text-indigo-300 border border-indigo-700"
+                        : currentUser.role === "Staff"
+                        ? "bg-teal-500 text-slate-950 font-black"
                         : "bg-slate-800 text-slate-400"
                     }`}
                   >

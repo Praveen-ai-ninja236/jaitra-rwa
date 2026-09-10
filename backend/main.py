@@ -1,5 +1,6 @@
 from typing import List, Optional
 import datetime
+import re
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
@@ -280,517 +281,6 @@ class TeamMemberCreate(TeamMemberBase):
 class TeamMemberSchema(TeamMemberBase):
     id: int
     model_config = ConfigDict(from_attributes=True)
-
-
-# ----------------- SEED DATA -----------------
-
-@app.on_event("startup")
-def seed_all_data():
-    db = next(get_db())
-    try:
-        # 1. Cultural Events
-        if db.query(models.CulturalEventModel).count() == 0:
-            ev1 = models.CulturalEventModel(
-                title="Jaitra Annual Badminton & Box Cricket League",
-                category="Sports",
-                event_date="2026-09-12",
-                time="07:00 AM - 08:00 PM",
-                venue="Clubhouse Indoor Arena & Sports Turf",
-                description="Annual intra-community sports tournament across Age Groups: Juniors (under 14), Adults (Men & Women Singles/Doubles), and Seniors 50+.",
-                coordinator="Mr. Vivek Murthy (Sports Lead)",
-                coordinator_contact="+91 98450 11223",
-                status="Upcoming",
-                registered_count=32,
-                budget="₹ 45,000"
-            )
-            ev2 = models.CulturalEventModel(
-                title="Youth STEM Robotics & Pottery Bootcamp",
-                category="Kids Workshop",
-                event_date="2026-09-20",
-                time="10:00 AM - 01:00 PM",
-                venue="Clubhouse Multipurpose Studio 2",
-                description="Hands-on weekend learning session featuring DIY Arduino robotics kits, 3D printing demos, and traditional wheel-pottery artistry for children aged 7-16.",
-                coordinator="Dr. Swati Sen (Cultural Committee)",
-                coordinator_contact="+91 99801 44556",
-                status="Upcoming",
-                registered_count=20,
-                budget="₹ 20,000"
-            )
-            db.add_all([ev1, ev2])
-            db.commit()
-            db.refresh(ev1)
-            db.refresh(ev2)
-
-            # Add Participants
-            db.add_all([
-                models.CulturalParticipantModel(
-                    event_id=ev1.id, tower="Tower A", flat_no="402", participant_name="Arjun Varma",
-                    age_group="Junior (<14)", activity_category="Badminton Singles", contact_no="+91 98451 10001",
-                    registration_date="2026-08-20", notes="Junior boys category seed #1"
-                ),
-                models.CulturalParticipantModel(
-                    event_id=ev1.id, tower="Tower B", flat_no="801", participant_name="Rohit Sharma",
-                    age_group="Adult (25-50)", activity_category="Cricket League", contact_no="+91 98452 20002",
-                    registration_date="2026-08-21", notes="Tower B Captain"
-                ),
-                models.CulturalParticipantModel(
-                    event_id=ev1.id, tower="Tower C", flat_no="1203", participant_name="Deepa Raman",
-                    age_group="Adult (25-50)", activity_category="Badminton Doubles", contact_no="+91 98453 30003",
-                    registration_date="2026-08-22", notes="Partnering with Tower D-502"
-                ),
-                models.CulturalParticipantModel(
-                    event_id=ev2.id, tower="Tower D", flat_no="604", participant_name="Ananya Sen",
-                    age_group="Junior (<14)", activity_category="Kids Pottery & Robotics", contact_no="+91 98454 40004",
-                    registration_date="2026-08-23", notes="Brought Arduino starter board"
-                )
-            ])
-
-            # Add Agendas / Schedule
-            db.add_all([
-                models.CulturalAgendaModel(
-                    event_id=ev1.id, slot_time="07:00 AM - 07:30 AM", performer_or_speaker="Sports Committee",
-                    activity_topic="Inaugural Toss & Oath Taking Ceremony", stage_coordinator="Vivek Murthy", duration_mins=30
-                ),
-                models.CulturalAgendaModel(
-                    event_id=ev1.id, slot_time="07:30 AM - 01:00 PM", performer_or_speaker="Registered Teams",
-                    activity_topic="League Matches & Quarter Finals", stage_coordinator="Karthik V.", duration_mins=330
-                ),
-                models.CulturalAgendaModel(
-                    event_id=ev1.id, slot_time="06:30 PM - 08:00 PM", performer_or_speaker="President & MC",
-                    activity_topic="Grand Finale, Trophies & High Tea", stage_coordinator="Rajesh Sharma", duration_mins=90
-                )
-            ])
-            db.commit()
-
-        # 2. Festivals & Financial Expense / Collection Tracker
-        if db.query(models.FestivalCelebrationModel).count() == 0:
-            fest1 = models.FestivalCelebrationModel(
-                festival_name="Ganesh Chaturthi Utsav 2026 (5-Day Grand Fest)",
-                start_date="2026-09-15",
-                end_date="2026-09-19",
-                location="Clubhouse Central Mandapam",
-                description="Eco-friendly clay Ganesha Sthapana, daily morning/evening Aarti, devotional Bhajans, cultural dance nights, Kids fancy dress, and the prestigious Maha Laddu Auction followed by Visarjan procession.",
-                lead_organizer="Sanjay Rao (Festival Convener)",
-                estimated_budget="₹ 3,50,000",
-                collected_funds="₹ 2,90,000",
-                status="Active",
-                highlights="Clay Idol Sthapana, Daily Maha-Prasadam, 15+ Kids Stage Acts, 21kg Laddu Auction, Dhol-Tasha Visarjan"
-            )
-            fest2 = models.FestivalCelebrationModel(
-                festival_name="Diwali Deepotsav & Gala Dinner 2026",
-                start_date="2026-11-01",
-                end_date="2026-11-02",
-                location="Main Boulevard & Clubhouse Courtyard",
-                description="10,000 Diyas illumination drive across all 6 towers, Rangoli mega-competition, eco-friendly laser light show, and grand dinner buffet.",
-                lead_organizer="Meenakshi Sundaram",
-                estimated_budget="₹ 4,20,000",
-                collected_funds="₹ 1,50,000",
-                status="Planning",
-                highlights="Society-wide Diya Display, Inter-tower Rangoli Trophy, Eco-friendly Laser Night, Grand Dinner Buffet"
-            )
-            db.add_all([fest1, fest2])
-            db.commit()
-            db.refresh(fest1)
-            db.refresh(fest2)
-
-            # Add Collections
-            db.add_all([
-                models.FestivalCollectionModel(
-                    festival_id=fest1.id, tower="Tower A", flat_no="301", donor_name="K. Venkat Rao",
-                    amount=5000.0, payment_mode="UPI", transaction_ref="UPI/623490123/HDFC",
-                    collected_date="2026-08-15", receipt_url="/receipts/REC_GANESH_01.pdf", notes="Festival voluntary seva"
-                ),
-                models.FestivalCollectionModel(
-                    festival_id=fest1.id, tower="Tower B", flat_no="504", donor_name="M. Srinivas",
-                    amount=11000.0, payment_mode="NetBanking", transaction_ref="NEFT/ICIC20260816",
-                    collected_date="2026-08-16", receipt_url="/receipts/REC_GANESH_02.pdf", notes="Prasadam sponsorship"
-                ),
-                models.FestivalCollectionModel(
-                    festival_id=fest1.id, tower="Tower C", flat_no="1102", donor_name="Ramesh Chandra",
-                    amount=25000.0, payment_mode="UPI", transaction_ref="UPI/623490987/SBI",
-                    collected_date="2026-08-18", receipt_url="/receipts/REC_GANESH_03.pdf", notes="Maha Laddu Auction pledge"
-                ),
-                models.FestivalCollectionModel(
-                    festival_id=fest1.id, tower="Tower D", flat_no="204", donor_name="S. Narayanan",
-                    amount=3500.0, payment_mode="UPI", transaction_ref="UPI/623491112/AXIS",
-                    collected_date="2026-08-20", receipt_url="/receipts/REC_GANESH_04.pdf", notes="Resident contribution"
-                ),
-                models.FestivalCollectionModel(
-                    festival_id=fest1.id, tower="Tower E", flat_no="702", donor_name="P. Kulkarni",
-                    amount=4000.0, payment_mode="Cash", transaction_ref="CASH-REC-105",
-                    collected_date="2026-08-21", receipt_url="/receipts/REC_GANESH_05.pdf", notes="Collected at Estate office"
-                ),
-                models.FestivalCollectionModel(
-                    festival_id=fest1.id, tower="Tower F", flat_no="903", donor_name="Harish Gupta",
-                    amount=5000.0, payment_mode="UPI", transaction_ref="UPI/623495544/GPay",
-                    collected_date="2026-08-22", receipt_url="/receipts/REC_GANESH_06.pdf", notes="Cultural night sponsor"
-                )
-            ])
-
-            # Add Expenses with Approver & Audit Proofs
-            db.add_all([
-                models.FestivalExpenseModel(
-                    festival_id=fest1.id, title="Mandapam Stage Decor & Waterproof Canopy",
-                    category="Decor", amount=65000.0, vendor_name="Sri Balaji Decorators & Lights",
-                    bill_date="2026-08-18", invoice_url="/invoices/INV_BALAJI_MANDAP.pdf",
-                    audit_evidence_notes="GST Bill attached. Physical inspection verified by Treasurer Vikram Patel.",
-                    approver_name="Vikram Patel", approver_role="Treasurer", approval_status="Approved"
-                ),
-                models.FestivalExpenseModel(
-                    festival_id=fest1.id, title="Eco-friendly Clay Ganesha Idol (8ft) + Puja Kit",
-                    category="Pooja", amount=32000.0, vendor_name="Dhoolpet Clay Artisans Guild",
-                    bill_date="2026-08-19", invoice_url="/invoices/INV_CLAY_IDOL_2026.pdf",
-                    audit_evidence_notes="Eco-friendly clay certificate provided for PCB compliance.",
-                    approver_name="Rajesh Sharma", approver_role="President", approval_status="Approved"
-                ),
-                models.FestivalExpenseModel(
-                    festival_id=fest1.id, title="Digital Sound System, JBL Line Arrays & Lighting Setup",
-                    category="Sound & Light", amount=45000.0, vendor_name="Surya Audio Visuals",
-                    bill_date="2026-08-20", invoice_url="/invoices/INV_SURYA_SOUND.pdf",
-                    audit_evidence_notes="5-day audio contract including DJ console for Visarjan.",
-                    approver_name="Vikram Patel", approver_role="Treasurer", approval_status="Approved"
-                ),
-                models.FestivalExpenseModel(
-                    festival_id=fest1.id, title="Day 1 & Day 2 Maha-Prasadam Buffet (1000 Pax)",
-                    category="Food/Prasadam", amount=85000.0, vendor_name="Swagath Caterers & Sweets",
-                    bill_date="2026-08-22", invoice_url="/invoices/INV_SWAGATH_PRASADAM.pdf",
-                    audit_evidence_notes="Verified food quality and hygiene checklist signed by Joint Sec.",
-                    approver_name="Ananya Roy", approver_role="General Secretary", approval_status="Approved"
-                )
-            ])
-            db.commit()
-
-        # 3. General Body Meetings (GBMs)
-        if db.query(models.GeneralBodyMeetingModel).count() == 0:
-            db.add_all([
-                models.GeneralBodyMeetingModel(
-                    meeting_title="5th Annual General Body Meeting (AGM 2026)",
-                    meeting_type="AGM",
-                    meeting_date="2026-07-26",
-                    time="10:00 AM - 01:30 PM",
-                    venue="Clubhouse Grand Banquet Hall & Zoom Live Hybrid",
-                    quorum_status="Quorum Met (240 Owners)",
-                    key_agenda="1. Audited FY25-26 Financials approval\n2. Sinking Fund allocation for Solar Plant\n3. Builder Handover punch-list status\n4. Approval of new security surveillance vendor\n5. Election of 3 replacement MC members",
-                    resolutions_passed="Resolution 1: 120kW Rooftop Solar Installation approved by 88% majority.\nResolution 2: FY26-27 annual maintenance budget passed with zero increase.\nResolution 3: Legal notice authorization regarding builder delayed STP handover.",
-                    minutes_summary="The AGM commenced with 240 registered owner representations. Treasurer presented audited balance sheet with ₹1.82 Cr corpus. All major resolutions passed.",
-                    attendees_count=240,
-                    doc_link="/docs/GBM_Minutes_AGM_2026_Approved.pdf"
-                ),
-                models.GeneralBodyMeetingModel(
-                    meeting_title="Extraordinary General Body Meeting (EGM) - STP & Lift AMC Review",
-                    meeting_type="EGM",
-                    meeting_date="2026-05-10",
-                    time="04:00 PM - 06:30 PM",
-                    venue="Clubhouse Grand Banquet Hall",
-                    quorum_status="Quorum Met (175 Owners)",
-                    key_agenda="Emergency discussion on STP odor remediation, treated water dual-pipeline flushing, and negotiating long-term OEM Lift maintenance contract with Otis/Schindler.",
-                    resolutions_passed="Authorised association to issue ₹6.5 Lakhs escrow release conditioned upon IGS completing STP microbial aerator overhaul within 30 days.",
-                    minutes_summary="Detailed technical evaluation presented by Infrastructure Sub-committee. Clear SLAs mandated for Builder & IGS.",
-                    attendees_count=175,
-                    doc_link="/docs/EGM_Minutes_May_2026.pdf"
-                )
-            ])
-            db.commit()
-
-        # 4. Community Issues Tracker (Tower A to F, Clubhouse, Common Space)
-        if db.query(models.CommunityIssueModel).count() == 0:
-            db.add_all([
-                models.CommunityIssueModel(
-                    issue_code="ISS-TWA-101",
-                    tower="Tower A",
-                    flat_no="A-901",
-                    flat_or_location="Tower A - Passenger Lift #2",
-                    title="Passenger Lift #2 Jerking & Floor Leveling Offset",
-                    category="Electrical & Lift",
-                    reported_by="Kavita Reddy (A-901)",
-                    priority="High",
-                    status="Under Inspection",
-                    assigned_to="Lift OEM / IGS Facility",
-                    created_at="2026-08-18",
-                    description="Lift stops with a 2-inch height discrepancy on 7th and 9th floors, causing tripping hazard.",
-                    resolution_notes="OEM service engineers inspected encoder sensors. Replacement traction brake coil ordered."
-                ),
-                models.CommunityIssueModel(
-                    issue_code="ISS-TWB-202",
-                    tower="Tower B",
-                    flat_no="B-404",
-                    flat_or_location="Tower B - Basement-2 Ramp Lower Joint",
-                    title="Basement-2 Ramp Joint Water Seepage during rains",
-                    category="Civil & Seepage",
-                    reported_by="Alok Srivastava (B-404)",
-                    priority="Critical",
-                    status="In Progress",
-                    assigned_to="Builder Civil Engineering Cell",
-                    created_at="2026-08-10",
-                    description="Expansion joint between basement slabs shows active water drip during continuous rain.",
-                    resolution_notes="Pressure grouting contractor mobilized; 3 out of 5 injection ports completed."
-                ),
-                models.CommunityIssueModel(
-                    issue_code="ISS-TWC-303",
-                    tower="Tower C",
-                    flat_no="C-102",
-                    flat_or_location="Tower C - Ground Floor Lobby Intercom",
-                    title="Lobby Intercom connection static & audio drops",
-                    category="Security & Access",
-                    reported_by="Pooja Sharma (C-102)",
-                    priority="Medium",
-                    status="Open",
-                    assigned_to="IGS IT & Security Desk",
-                    created_at="2026-08-22",
-                    description="Audio communication drops between guard booth and Tower C flats.",
-                    resolution_notes="Fiber optic switch in Tower C riser scheduled for reboot and line test."
-                ),
-                models.CommunityIssueModel(
-                    issue_code="ISS-TWD-404",
-                    tower="Tower D",
-                    flat_no="D-302",
-                    flat_or_location="Tower D - Dual Flush Line Shaft",
-                    title="STP Treated Water Odor in Flush Line",
-                    category="STP & Water Supply",
-                    reported_by="Mahesh Rao (D-302)",
-                    priority="High",
-                    status="In Progress",
-                    assigned_to="IGS Water Operations Lead",
-                    created_at="2026-08-20",
-                    description="Treated flush water exhibits mild turbidity and chemical odor in lower floor toilets.",
-                    resolution_notes="Activated carbon filter media replaced. Dosing pump calibration verified."
-                ),
-                models.CommunityIssueModel(
-                    issue_code="ISS-TWE-505",
-                    tower="Tower E",
-                    flat_no="E-1102",
-                    flat_or_location="Tower E - Corridors 11th Floor",
-                    title="Emergency Exit Staircase Fire Door Closer Jammed",
-                    category="Common Amenities",
-                    reported_by="Vivek Varma (E-1102)",
-                    priority="Medium",
-                    status="Open",
-                    assigned_to="Facility Maintenance Cell",
-                    created_at="2026-08-24",
-                    description="Hydraulic door closer on fire escape staircase stuck halfway.",
-                    resolution_notes="Technician assigned with replacement hydraulic arm."
-                ),
-                models.CommunityIssueModel(
-                    issue_code="ISS-TWF-606",
-                    tower="Tower F",
-                    flat_no="F-501",
-                    flat_or_location="Tower F - Rainwater Downpipe Joint",
-                    title="Rainwater Harvesting Pipe Dripping near Stilt Parking",
-                    category="Civil & Seepage",
-                    reported_by="D. Prasad (F-501)",
-                    priority="Low",
-                    status="Resolved",
-                    assigned_to="IGS Plumbing Team",
-                    created_at="2026-08-12",
-                    description="Mild joint leakage at 6-inch PVC elbow in stilt parking bay #44.",
-                    resolution_notes="Re-cemented solvent weld joint and tested under high-flow water. No further leak."
-                ),
-                models.CommunityIssueModel(
-                    issue_code="ISS-CH-701",
-                    tower="Clubhouse",
-                    flat_no="CH-Gym",
-                    flat_or_location="Clubhouse Fitness Center (1st Floor)",
-                    title="Gym Treadmill #3 Motor Inverter Fault",
-                    category="Common Amenities",
-                    reported_by="Rohan Joshi (B-1102)",
-                    priority="Low",
-                    status="Resolved",
-                    assigned_to="Facility Maintenance Desk",
-                    created_at="2026-08-05",
-                    description="Treadmill speed sensor throwing Error E-02 during incline adjustments.",
-                    resolution_notes="Technician replaced DC motor brushes and recalibrated digital console."
-                ),
-                models.CommunityIssueModel(
-                    issue_code="ISS-CS-801",
-                    tower="Common Space",
-                    flat_no="Gate 2",
-                    flat_or_location="Gate 2 & Children Play Area",
-                    title="CCTV Blind Spot near Children Play Area & Gate 2",
-                    category="Security & Access",
-                    reported_by="Rajesh Sharma (President)",
-                    priority="Medium",
-                    status="Open",
-                    assigned_to="Association IT & Security Head",
-                    created_at="2026-08-22",
-                    description="Tree branch overgrowth occludes 4MP PTZ camera angle covering the toddler play swings.",
-                    resolution_notes="Scheduled for camera realignment and horticulture pruning on Saturday morning."
-                )
-            ])
-            db.commit()
-
-        # 5. ADO Tasks with Comments & Audit Attachments (Builder & IGS)
-        if db.query(models.ADOTaskModel).count() == 0:
-            task1 = models.ADOTaskModel(
-                task_code="ADO-101",
-                title="Basement Waterproofing & Crack Injection Rectification",
-                assigned_to="Builder",
-                entity_type="Builder",
-                category="Seepage & Waterproofing",
-                status="Active",
-                priority="Critical",
-                assignee_name="Er. K. Verma (Builder Project Head)",
-                due_date="2026-09-15",
-                sla_days=14,
-                blockers="Awaiting polyurethane specialized sealant delivery from Bengaluru distributor.",
-                description="Complete structural PU injection grouting along 120 running meters of basement expansion joints in Tower B & C.",
-                completion_percentage=65,
-                tags="Handover, Structural, Warranty"
-            )
-            task2 = models.ADOTaskModel(
-                task_code="ADO-102",
-                title="Final Fire NOC Compliance & Hydrant Flow Calibration",
-                assigned_to="Builder",
-                entity_type="Builder",
-                category="Fire NOC & Compliance",
-                status="Active",
-                priority="Critical",
-                assignee_name="Mr. D. Srinivasan (Builder Liaison)",
-                due_date="2026-09-30",
-                sla_days=30,
-                blockers="Final inspection joint certificate with Telangana Fire Department pending signature.",
-                description="Pressure testing of 24 riser shafts across Towers A-F, jockey pump automated switch-over check, and statutory certificate.",
-                completion_percentage=80,
-                tags="Statutory, Fire Safety, NOC"
-            )
-            task3 = models.ADOTaskModel(
-                task_code="ADO-103",
-                title="STP Biological Oxygen Demand (BOD) Testing & IGS Handover",
-                assigned_to="IGS",
-                entity_type="IGS",
-                category="STP & WTP Operations",
-                status="Active",
-                priority="High",
-                assignee_name="Mr. Suresh R. (IGS Technical Ops)",
-                due_date="2026-09-10",
-                sla_days=7,
-                blockers="None. Aeration tank bacterial culture dosing in stabilization phase.",
-                description="Achieve continuous BOD < 10 ppm and COD < 50 ppm output compliance as mandated by PCB guidelines.",
-                completion_percentage=75,
-                tags="STP, IGS, Environment"
-            )
-            task4 = models.ADOTaskModel(
-                task_code="ADO-104",
-                title="Boom Barrier RFID Tag Sync with MyGate & ANPR System",
-                assigned_to="IGS",
-                entity_type="IGS",
-                category="CCTV & Gate Automation",
-                status="Resolved",
-                priority="High",
-                assignee_name="Kishore N. (IGS IT & Security)",
-                due_date="2026-08-25",
-                sla_days=5,
-                blockers="Resolved successfully.",
-                description="Integrate automated fast-tag recognition on Gate 1 & 2 boom barriers for resident 4-wheelers across all 6 towers.",
-                completion_percentage=100,
-                tags="Security, Automation, RFID"
-            )
-            db.add_all([task1, task2, task3, task4])
-            db.commit()
-            db.refresh(task1)
-            db.refresh(task2)
-            db.refresh(task3)
-            db.refresh(task4)
-
-            # Add Discussion Comments
-            db.add_all([
-                models.ADOCommentModel(
-                    task_id=task1.id, author_name="Karthik Venkatesh", author_role="MC Maintenance Lead",
-                    comment_text="Joint inspection conducted on Tower B Basement-2 ramp with Er. Verma. Marked 14 drill spots for PU injection.",
-                    created_at="2026-08-16 11:30 AM"
-                ),
-                models.ADOCommentModel(
-                    task_id=task1.id, author_name="Er. K. Verma", author_role="Builder Project Head",
-                    comment_text="First round of grouting complete on 8 spots. Secondary coating will begin once polyurethane batch arrives on Thursday.",
-                    created_at="2026-08-19 04:15 PM"
-                ),
-                models.ADOCommentModel(
-                    task_id=task3.id, author_name="Mr. Suresh R.", author_role="IGS Technical Ops",
-                    comment_text="Water test samples collected from dual STP outlet tank. Lab report from NABL lab expected in 48 hours.",
-                    created_at="2026-08-21 02:00 PM"
-                )
-            ])
-
-            # Add Evidence Attachments
-            db.add_all([
-                models.ADOAttachmentModel(
-                    task_id=task1.id, file_name="Basement_Crack_Inspection_Photos_Aug2026.pdf",
-                    file_url="/evidence/Basement_Inspection_Aug2026.pdf",
-                    description="High-resolution crack survey photos along Tower B & C ramp joint",
-                    uploaded_by="Karthik Venkatesh (MC)", created_at="2026-08-16"
-                ),
-                models.ADOAttachmentModel(
-                    task_id=task2.id, file_name="Fire_Riser_Pressure_Flow_Test_Report_Towers_A_F.pdf",
-                    file_url="/evidence/Fire_Riser_Test_Report.pdf",
-                    description="Signed hydrostatic test certificate by certified Fire Safety Engineer",
-                    uploaded_by="Mr. D. Srinivasan (Builder)", created_at="2026-08-18"
-                ),
-                models.ADOAttachmentModel(
-                    task_id=task3.id, file_name="STP_Treated_Water_NABL_Lab_Report_Aug2026.pdf",
-                    file_url="/evidence/STP_Lab_Report_Aug2026.pdf",
-                    description="PCB parameter certificate showing BOD 8.2 ppm and COD 42 ppm",
-                    uploaded_by="Mr. Suresh R. (IGS)", created_at="2026-08-22"
-                )
-            ])
-            db.commit()
-
-        # 6. Team Members (Jaitra Association Committee across Towers A-F)
-        if db.query(models.TeamMemberModel).count() == 0:
-            db.add_all([
-                models.TeamMemberModel(
-                    name="Rajesh Sharma", role="President", wing_flat="Tower A - 1204", tower="Tower A",
-                    contact="+91 98450 71001", email="president@jaitra.org", term="2025-2027",
-                    sub_committee="Executive & Governance", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Col. R. S. Rathore (Retd.)", role="Vice President", wing_flat="Tower E - 1401", tower="Tower E",
-                    contact="+91 98110 54321", email="vp@jaitra.org", term="2025-2027",
-                    sub_committee="Security & Estate Management", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Ananya Roy", role="General Secretary", wing_flat="Tower C - 802", tower="Tower C",
-                    contact="+91 99800 23412", email="secretary@jaitra.org", term="2025-2027",
-                    sub_committee="Legal, Compliance & Admin", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Meenakshi Sundaram", role="Joint Secretary", wing_flat="Tower B - 1103", tower="Tower B",
-                    contact="+91 94440 67890", email="jointsec@jaitra.org", term="2025-2027",
-                    sub_committee="Community Relations & PR", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Vikram Patel", role="Treasurer", wing_flat="Tower B - 501", tower="Tower B",
-                    contact="+91 97411 98765", email="treasurer@jaitra.org", term="2025-2027",
-                    sub_committee="Finance, Audit & Corpus", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Praveen Kumar", role="Joint Treasurer", wing_flat="Tower D - 704", tower="Tower D",
-                    contact="+91 96500 12389", email="jointtreasurer@jaitra.org", term="2025-2027",
-                    sub_committee="Billing & Vendor Escrow", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Dr. Swati Sen", role="Cultural Committee Head", wing_flat="Tower A - 302", tower="Tower A",
-                    contact="+91 98451 22334", email="cultural@jaitra.org", term="2025-2027",
-                    sub_committee="Events, Festivals & Arts", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Vivek Murthy", role="Sports & Amenities Head", wing_flat="Tower C - 404", tower="Tower C",
-                    contact="+91 98860 99887", email="sports@jaitra.org", term="2025-2027",
-                    sub_committee="Clubhouse, Gym & Grounds", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="Karthik Venkatesh", role="Facility & Maintenance Lead", wing_flat="Tower D - 1002", tower="Tower D",
-                    contact="+91 97312 88442", email="maintenance@jaitra.org", term="2025-2027",
-                    sub_committee="Builder Handover & IGS Oversight", status="Active"
-                ),
-                models.TeamMemberModel(
-                    name="G. Somasekhar", role="Block Representative (Tower F)", wing_flat="Tower F - 604", tower="Tower F",
-                    contact="+91 99440 12345", email="towerf@jaitra.org", term="2025-2027",
-                    sub_committee="Resident Welfare & Elevators", status="Active"
-                )
-            ])
-            db.commit()
-    except Exception as e:
-        db.rollback()
-        print("Error during seed initialization:", e)
 
 
 # ----------------- STATS / OVERVIEW -----------------
@@ -1117,17 +607,33 @@ def get_issues(
 @app.post("/api/issues", response_model=CommunityIssueSchema)
 def create_issue(issue: CommunityIssueCreate, db: Session = Depends(get_db)):
     data = issue.model_dump()
-    if not data.get("issue_code"):
+    if not data.get("issue_code") or str(data.get("issue_code")).strip() == "":
         tower_prefix = "TWA"
-        if "Tower B" in data.get("tower", ""): tower_prefix = "TWB"
-        elif "Tower C" in data.get("tower", ""): tower_prefix = "TWC"
-        elif "Tower D" in data.get("tower", ""): tower_prefix = "TWD"
-        elif "Tower E" in data.get("tower", ""): tower_prefix = "TWE"
-        elif "Tower F" in data.get("tower", ""): tower_prefix = "TWF"
-        elif "Clubhouse" in data.get("tower", ""): tower_prefix = "CH"
-        elif "Common" in data.get("tower", ""): tower_prefix = "CS"
-        count = db.query(models.CommunityIssueModel).count() + 1
-        data["issue_code"] = f"ISS-{tower_prefix}-{100 + count}"
+        base_num = 100
+        tower = data.get("tower", "") or ""
+        if "Tower B" in tower: tower_prefix = "TWB"; base_num = 200
+        elif "Tower C" in tower: tower_prefix = "TWC"; base_num = 300
+        elif "Tower D" in tower: tower_prefix = "TWD"; base_num = 400
+        elif "Tower E" in tower: tower_prefix = "TWE"; base_num = 500
+        elif "Tower F" in tower: tower_prefix = "TWF"; base_num = 600
+        elif "Clubhouse" in tower: tower_prefix = "CH"; base_num = 700
+        elif "Common" in tower: tower_prefix = "CS"; base_num = 800
+        
+        existing_issues = db.query(models.CommunityIssueModel.issue_code).all()
+        existing_codes = {i[0].strip() for i in existing_issues if i[0]}
+        max_num = base_num
+        for code in existing_codes:
+            m = re.match(rf"^ISS-{tower_prefix}-(\d+)$", code, re.IGNORECASE)
+            if m:
+                num = int(m.group(1))
+                if num > max_num:
+                    max_num = num
+        candidate = f"ISS-{tower_prefix}-{max_num + 1}"
+        next_num = max_num + 1
+        while candidate in existing_codes:
+            next_num += 1
+            candidate = f"ISS-{tower_prefix}-{next_num}"
+        data["issue_code"] = candidate
     if not data.get("created_at"):
         data["created_at"] = datetime.date.today().isoformat()
     new_issue = models.CommunityIssueModel(**data)
@@ -1197,9 +703,22 @@ def get_ado_task(task_id: int, db: Session = Depends(get_db)):
 @app.post("/api/tasks", response_model=ADOTaskSchema)
 def create_ado_task(task: ADOTaskCreate, db: Session = Depends(get_db)):
     data = task.model_dump()
-    if not data.get("task_code"):
-        count = db.query(models.ADOTaskModel).count() + 1
-        data["task_code"] = f"ADO-{100 + count}"
+    if not data.get("task_code") or str(data.get("task_code")).strip() == "":
+        existing_tasks = db.query(models.ADOTaskModel.task_code).all()
+        existing_codes = {t[0].strip() for t in existing_tasks if t[0]}
+        max_num = 100
+        for code in existing_codes:
+            m = re.search(r"(\d+)$", code)
+            if m:
+                num = int(m.group(1))
+                if num > max_num:
+                    max_num = num
+        candidate = f"ADO-{max_num + 1}"
+        next_num = max_num + 1
+        while candidate in existing_codes:
+            next_num += 1
+            candidate = f"ADO-{next_num}"
+        data["task_code"] = candidate
     new_task = models.ADOTaskModel(**data)
     db.add(new_task)
     db.commit()

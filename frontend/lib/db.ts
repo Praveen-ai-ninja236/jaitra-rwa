@@ -716,19 +716,39 @@ export async function getIssue(id: number): Promise<CommunityIssue | null> {
 }
 
 export async function createIssue(data: CommunityIssueCreate): Promise<CommunityIssue> {
-  let code = data.issue_code;
+  let code = data.issue_code?.trim();
   if (!code) {
-    const countRes = await runQuery("SELECT COUNT(*) as cnt FROM community_issues");
-    const nextNum = parseInt(countRes[0]?.cnt || "0") + 101;
     let pfx = "TWA";
-    if (data.tower.includes("Tower B")) pfx = "TWB";
-    else if (data.tower.includes("Tower C")) pfx = "TWC";
-    else if (data.tower.includes("Tower D")) pfx = "TWD";
-    else if (data.tower.includes("Tower E")) pfx = "TWE";
-    else if (data.tower.includes("Tower F")) pfx = "TWF";
-    else if (data.tower.includes("Clubhouse")) pfx = "CH";
-    else if (data.tower.includes("Common")) pfx = "CS";
-    code = `ISS-${pfx}-${nextNum}`;
+    let base = 100;
+    const tower = data.tower || "";
+    if (tower.includes("Tower B")) { pfx = "TWB"; base = 200; }
+    else if (tower.includes("Tower C")) { pfx = "TWC"; base = 300; }
+    else if (tower.includes("Tower D")) { pfx = "TWD"; base = 400; }
+    else if (tower.includes("Tower E")) { pfx = "TWE"; base = 500; }
+    else if (tower.includes("Tower F")) { pfx = "TWF"; base = 600; }
+    else if (tower.includes("Clubhouse")) { pfx = "CH"; base = 700; }
+    else if (tower.includes("Common")) { pfx = "CS"; base = 800; }
+
+    const rows = await runQuery("SELECT issue_code FROM community_issues WHERE issue_code IS NOT NULL");
+    const existingCodes = new Set<string>(rows.map((r: any) => (r.issue_code || "").trim()));
+    const regex = new RegExp(`^ISS-${pfx}-(\\d+)$`, "i");
+    let maxNum = base;
+    existingCodes.forEach((ec) => {
+      const match = ec.match(regex);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    });
+    let candidate = `ISS-${pfx}-${maxNum + 1}`;
+    let nextNum = maxNum + 1;
+    while (existingCodes.has(candidate)) {
+      nextNum++;
+      candidate = `ISS-${pfx}-${nextNum}`;
+    }
+    code = candidate;
   }
 
   const res = await runQuery(
@@ -846,9 +866,28 @@ export async function getTask(id: number): Promise<ADOTask | null> {
 }
 
 export async function createTask(data: ADOTaskCreate): Promise<ADOTask> {
-  const countRes = await runQuery("SELECT COUNT(*) as cnt FROM ado_tasks");
-  const nextNum = parseInt(countRes[0]?.cnt || "0") + 101;
-  const code = data.task_code || `ADO-${nextNum}`;
+  let code = data.task_code?.trim();
+  if (!code) {
+    const rows = await runQuery("SELECT task_code FROM ado_tasks WHERE task_code IS NOT NULL");
+    const existingCodes = new Set<string>(rows.map((r: any) => (r.task_code || "").trim()));
+    let maxNum = 100;
+    existingCodes.forEach((ec) => {
+      const match = ec.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    });
+    let candidate = `ADO-${maxNum + 1}`;
+    let nextNum = maxNum + 1;
+    while (existingCodes.has(candidate)) {
+      nextNum++;
+      candidate = `ADO-${nextNum}`;
+    }
+    code = candidate;
+  }
 
   const res = await runQuery(
     `INSERT INTO ado_tasks (task_code, title, assigned_to, entity_type, category, status, priority, assignee_name, due_date, sla_days, blockers, description, completion_percentage, tags)
@@ -1181,8 +1220,69 @@ export async function deleteDropdownOption(id: number): Promise<void> {
 }
 
 // ----------------- USER AUTHENTICATION & RBAC -----------------
+export async function ensureAppUsersTable(): Promise<void> {
+  try {
+    await runQuery(`
+      CREATE TABLE IF NOT EXISTS app_users (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'User',
+        tower TEXT DEFAULT 'Tower A',
+        flat_no TEXT DEFAULT '',
+        phone TEXT DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Ensure Staff user exists
+    const staffCheck = await runQuery("SELECT id FROM app_users WHERE LOWER(email) = 'staff@jaitra.org'");
+    if (staffCheck.length === 0) {
+      await runQuery(`
+        INSERT INTO app_users (name, email, password, role, tower, flat_no, phone)
+        VALUES ('Jaitra Operations Staff', 'staff@jaitra.org', 'staff123', 'Staff', 'Clubhouse', 'Staff Desk', '+91 98450 00111')
+        ON CONFLICT (email) DO UPDATE SET role = 'Staff'
+      `);
+    }
+
+    // Ensure Super Admin user exists
+    const superCheck = await runQuery("SELECT id FROM app_users WHERE LOWER(email) = 'superadmin@jaitra.org'");
+    if (superCheck.length === 0) {
+      await runQuery(`
+        INSERT INTO app_users (name, email, password, role, tower, flat_no, phone)
+        VALUES ('Jaitra Super Admin', 'superadmin@jaitra.org', 'admin123', 'Super Admin', 'Tower A', '1204', '+91 98450 71001')
+        ON CONFLICT (email) DO UPDATE SET role = 'Super Admin'
+      `);
+    }
+
+    // Ensure Admin user exists
+    const adminCheck = await runQuery("SELECT id FROM app_users WHERE LOWER(email) = 'admin@jaitra.org' OR LOWER(email) = 'admin4u@jaitra.org'");
+    if (adminCheck.length === 0) {
+      await runQuery(`
+        INSERT INTO app_users (name, email, password, role, tower, flat_no, phone)
+        VALUES ('Jaitra Admin Officer', 'admin@jaitra.org', 'admin123', 'Admin', 'Tower B', '501', '+91 97411 98765')
+        ON CONFLICT (email) DO UPDATE SET role = 'Admin'
+      `);
+    }
+
+    // Ensure Resident user exists
+    const residentCheck = await runQuery("SELECT id FROM app_users WHERE LOWER(email) = 'resident@jaitra.org'");
+    if (residentCheck.length === 0) {
+      await runQuery(`
+        INSERT INTO app_users (name, email, password, role, tower, flat_no, phone)
+        VALUES ('Resident Member', 'resident@jaitra.org', 'resident123', 'User', 'Tower C', '302', '+91 98451 22334')
+        ON CONFLICT (email) DO UPDATE SET role = 'User'
+      `);
+    }
+  } catch (err) {
+    console.error("ensureAppUsersTable error:", err);
+  }
+}
+
 export async function loginUser(email: string, password: string): Promise<AppUser | null> {
   try {
+    await ensureAppUsersTable();
     const rows = await runQuery(
       "SELECT id, name, email, role, tower, flat_no, phone, created_at FROM app_users WHERE LOWER(email) = LOWER($1) AND password = $2",
       [email.trim(), password.trim()]
@@ -1195,6 +1295,7 @@ export async function loginUser(email: string, password: string): Promise<AppUse
 }
 
 export async function registerUser(data: AppUserRegister): Promise<AppUser> {
+  await ensureAppUsersTable();
   const defaultRole = data.role || "User";
   const res = await runQuery(
     `INSERT INTO app_users (name, email, password, role, tower, flat_no, phone)
@@ -1215,6 +1316,7 @@ export async function registerUser(data: AppUserRegister): Promise<AppUser> {
 
 export async function getUsers(): Promise<AppUser[]> {
   try {
+    await ensureAppUsersTable();
     return await runQuery("SELECT id, name, email, role, tower, flat_no, phone, created_at FROM app_users ORDER BY id ASC");
   } catch (err) {
     console.error("getUsers error:", err);
@@ -1343,6 +1445,69 @@ export async function updateVendorContract(
 
 export async function deleteVendorContract(id: number): Promise<void> {
   await runQuery("DELETE FROM vendor_contracts WHERE id = $1", [id]);
+}
+
+// ----------------- AUDIT LOG -----------------
+
+export async function ensureAuditLogTable(): Promise<void> {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id SERIAL PRIMARY KEY,
+      user_name TEXT NOT NULL DEFAULT '',
+      user_role TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER,
+      entity_label TEXT NOT NULL DEFAULT '',
+      details TEXT NOT NULL DEFAULT '',
+      ip_address TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+export async function insertAuditLog(entry: {
+  user_name?: string;
+  user_role?: string;
+  action: string;
+  entity_type: string;
+  entity_id?: number | null;
+  entity_label?: string;
+  details?: string;
+  ip_address?: string;
+}): Promise<void> {
+  try {
+    await ensureAuditLogTable();
+    await runQuery(
+      `INSERT INTO audit_log (user_name, user_role, action, entity_type, entity_id, entity_label, details, ip_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        entry.user_name || "",
+        entry.user_role || "",
+        entry.action,
+        entry.entity_type,
+        entry.entity_id || null,
+        entry.entity_label || "",
+        entry.details || "",
+        entry.ip_address || "",
+      ]
+    );
+  } catch (err) {
+    console.error("Audit log insert failed:", err);
+  }
+}
+
+export async function getAuditLogs(limit = 200): Promise<any[]> {
+  try {
+    await ensureAuditLogTable();
+    return await runQuery(
+      `SELECT * FROM audit_log ORDER BY created_at DESC LIMIT $1`,
+      [limit]
+    );
+  } catch (err) {
+    console.error("getAuditLogs error:", err);
+    return [];
+  }
 }
 
 

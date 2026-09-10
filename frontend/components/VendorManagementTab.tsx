@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { VendorContract, VendorContractCreate, UserRole } from "../lib/types";
+import { VendorContract, VendorContractCreate, UserRole, DropdownCategoryMap } from "../lib/types";
 import {
   Briefcase,
   Zap,
@@ -38,6 +38,7 @@ import {
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
 import FileUploadInput from "./FileUploadInput";
+import DocumentPreviewModal from "./DocumentPreviewModal";
 
 interface VendorManagementTabProps {
   vendors: VendorContract[];
@@ -46,6 +47,7 @@ interface VendorManagementTabProps {
   onDeleteVendor: (id: number) => Promise<void>;
   isLoading: boolean;
   userRole?: UserRole;
+  dropdownMap?: DropdownCategoryMap;
 }
 
 export default function VendorManagementTab({
@@ -55,6 +57,7 @@ export default function VendorManagementTab({
   onDeleteVendor,
   isLoading,
   userRole = "Super Admin",
+  dropdownMap = {},
 }: VendorManagementTabProps) {
   const canEdit = userRole === "Super Admin" || userRole === "Admin";
   const [searchTerm, setSearchTerm] = useState("");
@@ -67,6 +70,7 @@ export default function VendorManagementTab({
   const [editingVendor, setEditingVendor] = useState<VendorContract | null>(null);
   const [activeVendorDetail, setActiveVendorDetail] = useState<VendorContract | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string } | null>(null);
 
   // Sorting
   const [sortField, setSortField] = useState<"vendor_name" | "category" | "end_date" | "rating">("vendor_name");
@@ -93,18 +97,7 @@ export default function VendorManagementTab({
     bidding_notes: "",
   });
 
-  const defaultCategories = [
-    "Amenities & EV Charging",
-    "Lifts & Elevators AMC",
-    "STP & WTP Operations",
-    "Security & Surveillance",
-    "Fire Safety & Compliance",
-    "Solar & Power Infrastructure",
-    "Housekeeping & Facility",
-    "Plumbing & Civil Works",
-    "Gym & Fitness Equipment",
-    "Landscaping & Horticulture",
-  ];
+  const defaultCategories = dropdownMap["ado_categories"]?.length ? dropdownMap["ado_categories"] : ["Amenities & EV Charging", "Lifts & Elevators AMC", "STP & WTP Operations", "Security & Surveillance", "Fire Safety & Compliance", "Solar & Power Infrastructure", "Housekeeping & Facility", "Plumbing & Civil Works", "Gym & Fitness Equipment", "Landscaping & Horticulture"];
 
   const defaultFunctionalStatuses = ["Operational", "Under Maintenance", "Degraded", "Pending Parts"];
   const defaultVerificationStatuses = ["Verified & Compliant", "Pending Inspection", "Non-Compliant"];
@@ -460,12 +453,31 @@ export default function VendorManagementTab({
                     </div>
                   </div>
 
-                  {/* Card Footer: Contact POC */}
+                  {/* Card Footer: Contact POC & Document View */}
                   <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="truncate">
-                      POC: <strong className="text-slate-200">{vendor.contact_person || "Contact Desk"}</strong>
-                    </span>
-                    <span className="text-teal-400 font-bold flex items-center gap-0.5 group-hover:translate-x-0.5 transition">
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="truncate">
+                        POC: <strong className="text-slate-200">{vendor.contact_person || "Contact Desk"}</strong>
+                      </span>
+                      {vendor.contract_doc_url && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewDoc({
+                              url: vendor.contract_doc_url!,
+                              title: `Contract Agreement: ${vendor.vendor_name}`,
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] font-black text-teal-300 hover:text-white bg-teal-950/80 hover:bg-teal-900 border border-teal-700/80 px-2 py-0.5 rounded-lg transition"
+                          title="View Attached Contract Agreement"
+                        >
+                          <Eye className="w-3 h-3 text-teal-400" />
+                          <span>View SLA</span>
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-teal-400 font-bold flex items-center gap-0.5 group-hover:translate-x-0.5 transition shrink-0">
                       View Details <ChevronRight className="w-3.5 h-3.5" />
                     </span>
                   </div>
@@ -550,9 +562,24 @@ export default function VendorManagementTab({
                       </td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {vendor.contract_doc_url && (
+                            <button
+                              onClick={() =>
+                                setPreviewDoc({
+                                  url: vendor.contract_doc_url!,
+                                  title: `Contract SLA: ${vendor.vendor_name}`,
+                                })
+                              }
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-teal-950/80 hover:bg-teal-900 border border-teal-700/80 text-teal-300 rounded-lg text-xs font-bold transition shadow-xs"
+                              title="View Contract Agreement"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View SLA</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => setActiveVendorDetail(vendor)}
-                            className="p-1 text-slate-400 hover:text-teal-300"
+                            className="p-1 text-slate-400 hover:text-sky-300"
                             title="View Full Details"
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -669,14 +696,18 @@ export default function VendorManagementTab({
                     <FileText className="w-4 h-4 text-teal-400 shrink-0" />
                     <span className="font-semibold text-slate-200 truncate">Contract Agreement</span>
                   </div>
-                  <a
-                    href={currentDetailVendor.contract_doc_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-2.5 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewDoc({
+                        url: currentDetailVendor.contract_doc_url!,
+                        title: `Contract SLA: ${currentDetailVendor.vendor_name}`,
+                      })
+                    }
+                    className="px-2.5 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-sm"
                   >
-                    <ExternalLink className="w-3 h-3" /> View PDF
-                  </a>
+                    <Eye className="w-3.5 h-3.5" /> View SLA
+                  </button>
                 </div>
               ) : null}
 
@@ -686,14 +717,18 @@ export default function VendorManagementTab({
                     <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span className="font-semibold text-slate-200 truncate">Compliance Certificate</span>
                   </div>
-                  <a
-                    href={currentDetailVendor.certificate_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewDoc({
+                        url: currentDetailVendor.certificate_url!,
+                        title: `Compliance Certificate: ${currentDetailVendor.vendor_name}`,
+                      })
+                    }
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-sm"
                   >
-                    <ExternalLink className="w-3 h-3" /> View Proof
-                  </a>
+                    <Eye className="w-3.5 h-3.5" /> View Proof
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -1112,6 +1147,14 @@ export default function VendorManagementTab({
           </form>
         </Modal>
       )}
+
+      {/* Reusable Document & Contract Preview Modal */}
+      <DocumentPreviewModal
+        isOpen={Boolean(previewDoc)}
+        onClose={() => setPreviewDoc(null)}
+        url={previewDoc?.url}
+        title={previewDoc?.title}
+      />
     </div>
   );
 }

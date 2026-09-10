@@ -9,6 +9,8 @@ import {
   CulturalAgenda,
   CulturalAgendaCreate,
   UserRole,
+  DropdownCategoryMap,
+  TeamMember,
 } from "../lib/types";
 import {
   Calendar,
@@ -51,6 +53,9 @@ interface CulturalEventsTabProps {
   onDeleteAgenda: (agendaId: number) => Promise<void>;
   isLoading: boolean;
   userRole?: UserRole;
+  isGuest?: boolean;
+  dropdownMap?: DropdownCategoryMap;
+  teamMembers?: TeamMember[];
 }
 
 export default function CulturalEventsTab({
@@ -66,8 +71,12 @@ export default function CulturalEventsTab({
   onDeleteAgenda,
   isLoading,
   userRole = "Super Admin",
+  isGuest = false,
+  dropdownMap = {},
+  teamMembers = [],
 }: CulturalEventsTabProps) {
-  const canEdit = userRole === "Super Admin" || userRole === "Admin";
+  const teamMemberNames = teamMembers.map((m) => m.name).filter(Boolean);
+  const canEdit = userRole === "Super Admin" || userRole === "Admin" || userRole === "Staff";
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedStatus, setSelectedStatus] = useState("All");
@@ -117,17 +126,10 @@ export default function CulturalEventsTab({
     duration_mins: 30,
   });
 
-  const defaultCategories = [
-    "Sports",
-    "Music & Performing Arts",
-    "Kids Workshop",
-    "Health & Wellness",
-    "Cultural & Arts",
-    "Quiz & Debates",
-  ];
+  const defaultCategories = dropdownMap["cultural_categories"]?.length ? dropdownMap["cultural_categories"] : ["Sports", "Music & Performing Arts", "Kids Workshop", "Health & Wellness", "Cultural & Arts", "Quiz & Debates"];
   const defaultStatuses = ["Upcoming", "Ongoing", "Completed", "Planning"];
-  const defaultTowers = ["Tower A", "Tower B", "Tower C", "Tower D", "Tower E", "Tower F"];
-  const defaultActivityCategories = [
+  const defaultTowers = dropdownMap["towers"]?.length ? dropdownMap["towers"] : ["Tower A", "Tower B", "Tower C", "Tower D", "Tower E", "Tower F", "Jaitra Management"];
+  const defaultActivityCategories = dropdownMap["cultural_activities"]?.length ? dropdownMap["cultural_activities"] : [
     "Badminton Singles",
     "Badminton Doubles",
     "Cricket League",
@@ -428,7 +430,7 @@ export default function CulturalEventsTab({
                       setActiveEventDetail(event);
                       setDetailTab("participants");
                     }}
-                    className="text-lg sm:text-xl font-extrabold text-white leading-snug cursor-pointer group-hover:text-indigo-200 transition flex items-center justify-between"
+                    className={`text-lg sm:text-xl font-extrabold text-white leading-snug transition flex items-center justify-between cursor-pointer group-hover:text-indigo-200`}
                   >
                     <span>{event.title}</span>
                     <ChevronRight className="w-5 h-5 text-indigo-400 opacity-80 group-hover:translate-x-1 transition" />
@@ -461,7 +463,7 @@ export default function CulturalEventsTab({
                         Coord: <strong className="text-slate-200">{event.coordinator}</strong>
                       </span>
                     </div>
-                    {event.budget && (
+                    {!isGuest && event.budget && (
                       <div className="flex items-center gap-1 text-slate-200 font-mono text-[11px] font-bold bg-slate-800/90 border border-slate-700 px-2 py-0.5 rounded">
                         <IndianRupee className="w-3 h-3 text-slate-400" />
                         <span>{event.budget.replace("₹", "").trim()}</span>
@@ -488,7 +490,7 @@ export default function CulturalEventsTab({
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-300 hover:text-white bg-indigo-500/20 hover:bg-indigo-500/30 px-3.5 py-1.5 rounded-xl border border-indigo-400/40 transition shadow-sm"
                   >
                     <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>View / Manage Participants</span>
+                    <span>{isGuest ? "View Details" : "View / Manage Participants"}</span>
                   </button>
                 </div>
               </div>
@@ -503,7 +505,7 @@ export default function CulturalEventsTab({
           isOpen={Boolean(currentEvent)}
           onClose={() => setActiveEventDetail(null)}
           title={`${currentEvent.title} — Event Manager`}
-          subtitle="View / Edit Details, Tower-wise Participants & Speaker Agendas"
+          subtitle={isGuest ? "View-only mode — sign in to manage participants & agendas" : "View / Edit Details, Tower-wise Participants & Speaker Agendas"}
           maxWidth="2xl"
         >
           <div className="space-y-5">
@@ -579,7 +581,7 @@ export default function CulturalEventsTab({
                           required
                           value={partData.flat_no}
                           onChange={(e) => setPartData({ ...partData, flat_no: e.target.value })}
-                          placeholder="e.g. 502"
+                          placeholder="e.g. G01, 101, 502, 1404 (Ground + 14 Floors)"
                           className="w-full text-xs p-2 rounded-xl bg-slate-800 border border-slate-700 text-white"
                         />
                       </div>
@@ -973,18 +975,15 @@ export default function CulturalEventsTab({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Coordinator Name *</label>
-              <input
-                type="text"
-                required
+              <DynamicSelect
+                label="Coordinator"
                 value={formData.coordinator}
-                onChange={(e) => setFormData({ ...formData, coordinator: e.target.value })}
-                placeholder="e.g., Vivek Murthy"
-                className="w-full text-xs p-2.5 border rounded-xl bg-slate-800 border-slate-700 text-white focus:outline-none focus:border-indigo-500"
+                onChange={(val) => setFormData({ ...formData, coordinator: val })}
+                options={teamMemberNames.length ? teamMemberNames : ["Dr. Swati Sen", "Vivek Murthy", "Rajesh Sharma"]}
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Coordinator Contact</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Coordinator Contact (Optional)</label>
               <input
                 type="text"
                 value={formData.coordinator_contact}
@@ -1113,16 +1112,15 @@ export default function CulturalEventsTab({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Coordinator</label>
-                <input
-                  type="text"
+                <DynamicSelect
+                  label="Coordinator"
                   value={editingEvent.coordinator}
-                  onChange={(e) => setEditingEvent({ ...editingEvent, coordinator: e.target.value })}
-                  className="w-full text-xs p-2.5 border rounded-xl bg-slate-800 border-slate-700 text-white"
+                  onChange={(val) => setEditingEvent({ ...editingEvent, coordinator: val })}
+                  options={teamMemberNames.length ? teamMemberNames : ["Dr. Swati Sen", "Vivek Murthy", "Rajesh Sharma"]}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Coordinator Contact</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Coordinator Contact (Optional)</label>
                 <input
                   type="text"
                   value={editingEvent.coordinator_contact || ""}

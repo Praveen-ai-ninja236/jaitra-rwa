@@ -14,8 +14,10 @@ import {
   Building,
   CreditCard,
   Layers,
+  Eye,
 } from "lucide-react";
 import { AuditTransaction } from "@/lib/types";
+import DocumentPreviewModal from "./DocumentPreviewModal";
 
 interface AuditReportModalProps {
   isOpen: boolean;
@@ -29,6 +31,7 @@ export default function AuditReportModal({ isOpen, onClose, transactions }: Audi
   const [paymentModeFilter, setPaymentModeFilter] = useState("All");
   const [sortField, setSortField] = useState<"date" | "amount" | "type" | "particulars">("date");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string } | null>(null);
 
   const filteredTransactions = useMemo(() => {
     return transactions
@@ -340,8 +343,28 @@ export default function AuditReportModal({ isOpen, onClose, transactions }: Audi
                       </span>
                     </td>
                     <td className="py-2.5 px-3">
-                      <p className="font-bold text-white text-xs">{tx.particulars}</p>
-                      <p className="text-[11px] text-slate-400">{tx.festival_or_event}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-white text-xs">{tx.particulars}</p>
+                          <p className="text-[11px] text-slate-400">{tx.festival_or_event}</p>
+                        </div>
+                        {tx.evidence_url && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPreviewDoc({
+                                url: tx.evidence_url!,
+                                title: `Audit Evidence: ${tx.particulars} (₹${tx.amount.toLocaleString("en-IN")})`,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-sky-950/90 hover:bg-sky-900 border border-sky-600/80 text-sky-300 rounded-lg text-[10px] font-black transition shrink-0 shadow-xs"
+                            title="View Attached Audit Proof / Bill"
+                          >
+                            <Eye className="w-3 h-3 text-sky-400" />
+                            <span>View Proof</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-slate-300">
                       {tx.tower_flat !== "-" ? tx.tower_flat : tx.payer_or_vendor}
@@ -384,6 +407,14 @@ export default function AuditReportModal({ isOpen, onClose, transactions }: Audi
           <p className="font-mono text-[11px]">Certified by Jaitra RWA Treasury Cell</p>
         </div>
       </div>
+
+      {/* Audit Evidence Document Preview Modal */}
+      <DocumentPreviewModal
+        isOpen={Boolean(previewDoc)}
+        onClose={() => setPreviewDoc(null)}
+        url={previewDoc?.url}
+        title={previewDoc?.title}
+      />
     </div>
   );
 }

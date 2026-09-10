@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { TeamMember, TeamMemberCreate, UserRole } from "../lib/types";
+import { TeamMember, TeamMemberCreate, UserRole, DropdownCategoryMap } from "../lib/types";
 import {
   Users,
   UserPlus,
@@ -29,6 +29,7 @@ interface TeamListTabProps {
   onDeleteMember: (id: number) => Promise<void>;
   isLoading: boolean;
   userRole?: UserRole;
+  dropdownMap?: DropdownCategoryMap;
 }
 
 export default function TeamListTab({
@@ -38,6 +39,7 @@ export default function TeamListTab({
   onDeleteMember,
   isLoading,
   userRole = "Super Admin",
+  dropdownMap = {},
 }: TeamListTabProps) {
   const canEditTeam = userRole === "Super Admin";
   const [searchTerm, setSearchTerm] = useState("");
@@ -60,59 +62,112 @@ export default function TeamListTab({
     status: "Active",
   });
 
-  const defaultTowers = ["Tower A", "Tower B", "Tower C", "Tower D", "Tower E", "Tower F"];
+  const defaultTowers = dropdownMap["towers"]?.length
+    ? dropdownMap["towers"]
+    : ["Tower A", "Tower B", "Tower C", "Tower D", "Tower E", "Tower F", "Jaitra Management"];
 
-  const defaultRoles = [
-    "President",
-    "Vice President",
+  const ROLE_SORT_ORDER: string[] = [
+    "Chairman",
+    "Vice-chairman",
+    "Vice Chairman",
     "General Secretary",
     "Joint Secretary",
     "Treasurer",
-    "Joint Treasurer",
-    "Cultural Committee Head",
-    "Sports & Amenities Head",
-    "Facility & Maintenance Lead",
-    "Security & IT Lead",
-    "Block Representative (Tower A)",
-    "Block Representative (Tower B)",
-    "Block Representative (Tower C)",
-    "Block Representative (Tower D)",
-    "Block Representative (Tower E)",
-    "Block Representative (Tower F)",
-    "Executive Member",
+    "Director - A",
+    "Director - B",
+    "Director - C",
+    "Director - D",
+    "Director - E",
+    "Director - F",
+    "Jaitra MD",
+    "Jaitra Director 1",
+    "Jaitra Director 2",
+    "Jaitra CRM 1",
+    "Jaitra CRM 2",
+    "Jaitra Engineer 1",
+    "Jaitra Engineer 2",
   ];
 
-  const defaultSubCommittees = [
-    "Executive & Governance",
-    "Legal, Compliance & Admin",
-    "Finance, Audit & Corpus",
-    "Security & Estate Management",
-    "Community Relations & PR",
-    "Billing & Vendor Escrow",
-    "Events, Festivals & Arts",
-    "Clubhouse, Gym & Grounds",
-    "Builder Handover & IGS Oversight",
-    "Resident Welfare & Elevators",
-  ];
+  const defaultRoles = dropdownMap["team_roles"]?.length
+    ? dropdownMap["team_roles"]
+    : [
+        "Chairman",
+        "Vice-chairman",
+        "Vice Chairman",
+        "President",
+        "Vice President",
+        "General Secretary",
+        "Joint Secretary",
+        "Treasurer",
+        "Joint Treasurer",
+        "Director - A",
+        "Director - B",
+        "Director - C",
+        "Director - D",
+        "Director - E",
+        "Director - F",
+        "Jaitra MD",
+        "Jaitra Director 1",
+        "Jaitra Director 2",
+        "Jaitra CRM 1",
+        "Jaitra CRM 2",
+        "Jaitra Engineer 1",
+        "Jaitra Engineer 2",
+        "Cultural Committee Head",
+        "Sports & Amenities Head",
+        "Facility & Maintenance Lead",
+        "Security & IT Lead",
+        "Block Representative (Tower A)",
+        "Block Representative (Tower B)",
+        "Block Representative (Tower C)",
+        "Block Representative (Tower D)",
+        "Block Representative (Tower E)",
+        "Block Representative (Tower F)",
+        "Executive Member",
+      ];
+
+  const defaultSubCommittees = dropdownMap["sub_committees"]?.length
+    ? dropdownMap["sub_committees"]
+    : [
+        "Executive & Governance",
+        "Legal, Compliance & Admin",
+        "Finance, Audit & Corpus",
+        "Security & Estate Management",
+        "Community Relations & PR",
+        "Billing & Vendor Escrow",
+        "Events, Festivals & Arts",
+        "Clubhouse, Gym & Grounds",
+        "Builder Handover & IGS Oversight",
+        "Resident Welfare & Elevators",
+      ];
+
+  const getRoleSortIndex = (role: string): number => {
+    const idx = ROLE_SORT_ORDER.findIndex(
+      (r) => r.toLowerCase() === role.toLowerCase()
+    );
+    return idx === -1 ? ROLE_SORT_ORDER.length : idx;
+  };
 
   const filteredTeam = useMemo(() => {
-    return team.filter((m) => {
-      const matchSearch =
-        m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        m.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (m.wing_flat && m.wing_flat.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        m.contact.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (m.sub_committee && m.sub_committee.toLowerCase().includes(searchTerm.toLowerCase()));
-      const matchTower =
-        selectedTower === "All" ||
-        m.tower === selectedTower ||
-        (m.wing_flat && m.wing_flat.includes(selectedTower));
-      const matchSub =
-        selectedSubCommittee === "All" ||
-        (m.sub_committee &&
-          m.sub_committee.toLowerCase().includes(selectedSubCommittee.toLowerCase()));
-      return matchSearch && matchTower && matchSub;
-    });
+    return team
+      .filter((m) => {
+        const matchSearch =
+          m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          m.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (m.wing_flat && m.wing_flat.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          m.contact.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (m.sub_committee && m.sub_committee.toLowerCase().includes(searchTerm.toLowerCase()));
+        const matchTower =
+          selectedTower === "All" ||
+          m.tower === selectedTower ||
+          (m.wing_flat && m.wing_flat.includes(selectedTower));
+        const matchSub =
+          selectedSubCommittee === "All" ||
+          (m.sub_committee &&
+            m.sub_committee.toLowerCase().includes(selectedSubCommittee.toLowerCase()));
+        return matchSearch && matchTower && matchSub;
+      })
+      .sort((a, b) => getRoleSortIndex(a.role) - getRoleSortIndex(b.role));
   }, [team, searchTerm, selectedTower, selectedSubCommittee]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -371,10 +426,20 @@ export default function TeamListTab({
         {/* Right Side: Quick Add Form (Super Admin Only) or Directory Info */}
         <div className="bg-slate-900/90 p-5 rounded-2xl shadow-xl border border-slate-800">
           {canEditTeam ? (
+            isAddModalOpen ? (
             <>
-              <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-800">
-                <UserPlus className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-extrabold text-white">Add Association Member</h3>
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-sm font-extrabold text-white">Add Association Member</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 bg-slate-800 rounded-lg"
+                >
+                  Close
+                </button>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-3.5">
@@ -410,7 +475,7 @@ export default function TeamListTab({
                       required
                       value={formData.wing_flat}
                       onChange={(e) => setFormData({ ...formData, wing_flat: e.target.value })}
-                      placeholder="e.g., Tower B - 604"
+                      placeholder="e.g., Tower B - G02 / Tower A - 604"
                       className="w-full text-xs p-2.5 border rounded-xl bg-slate-800 border-slate-700 text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
@@ -490,6 +555,12 @@ export default function TeamListTab({
                 </button>
               </form>
             </>
+          ) : (
+            <div className="text-center py-6">
+              <UserPlus className="w-8 h-8 text-emerald-500/50 mx-auto mb-2" />
+              <p className="text-xs text-slate-400">Click &quot;Add Committee Member&quot; above to add a new member.</p>
+            </div>
+          )
           ) : (
             <div className="space-y-4 text-xs">
               <div className="flex items-center gap-2 pb-3 border-b border-slate-800">

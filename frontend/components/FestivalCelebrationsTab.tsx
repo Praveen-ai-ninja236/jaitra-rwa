@@ -9,6 +9,8 @@ import {
   FestivalExpense,
   FestivalExpenseCreate,
   UserRole,
+  DropdownCategoryMap,
+  TeamMember,
 } from "../lib/types";
 import {
   Sparkles,
@@ -37,10 +39,12 @@ import {
   Filter,
   ArrowUpDown,
   FileSpreadsheet,
+  Eye,
 } from "lucide-react";
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
 import FileUploadInput from "./FileUploadInput";
+import DocumentPreviewModal from "./DocumentPreviewModal";
 
 interface FestivalCelebrationsTabProps {
   festivals: FestivalCelebration[];
@@ -57,6 +61,9 @@ interface FestivalCelebrationsTabProps {
   onOpenAuditReport: () => void;
   isLoading: boolean;
   userRole?: UserRole;
+  isGuest?: boolean;
+  dropdownMap?: DropdownCategoryMap;
+  teamMembers?: TeamMember[];
 }
 
 export default function FestivalCelebrationsTab({
@@ -74,7 +81,11 @@ export default function FestivalCelebrationsTab({
   onOpenAuditReport,
   isLoading,
   userRole = "Super Admin",
+  isGuest = false,
+  dropdownMap = {},
+  teamMembers = [],
 }: FestivalCelebrationsTabProps) {
+  const teamMemberNames = teamMembers.map((m) => m.name).filter(Boolean);
   const canEdit = userRole === "Super Admin" || userRole === "Admin";
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("All");
@@ -87,6 +98,7 @@ export default function FestivalCelebrationsTab({
 
   const [editingCollection, setEditingCollection] = useState<FestivalCollection | null>(null);
   const [editingExpense, setEditingExpense] = useState<FestivalExpense | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string } | null>(null);
 
   // Table Filters & Sorting within Detail View
   const [collSearch, setCollSearch] = useState("");
@@ -144,19 +156,9 @@ export default function FestivalCelebrationsTab({
     transaction_ref: "",
   });
 
-  const defaultTowers = ["Tower A", "Tower B", "Tower C", "Tower D", "Tower E", "Tower F", "Clubhouse"];
-  const defaultPaymentModes = ["UPI", "Cash", "Cheque", "Net Banking", "Card"];
-  const defaultExpenseCategories = [
-    "Decor",
-    "Pooja",
-    "Sound & Light",
-    "Food/Prasadam",
-    "Security",
-    "Priest Dakshina",
-    "Logistics & Stage",
-    "Awards/Gifts",
-    "Printing & Flex",
-  ];
+  const defaultTowers = dropdownMap["towers"]?.length ? dropdownMap["towers"] : ["Tower A", "Tower B", "Tower C", "Tower D", "Tower E", "Tower F", "Jaitra Management"];
+  const defaultPaymentModes = dropdownMap["payment_modes"]?.length ? dropdownMap["payment_modes"] : ["UPI", "Cash", "Cheque", "Net Banking", "Card"];
+  const defaultExpenseCategories = dropdownMap["expense_categories"]?.length ? dropdownMap["expense_categories"] : ["Decor", "Pooja", "Sound & Light", "Food/Prasadam", "Security", "Priest Dakshina", "Logistics & Stage", "Awards/Gifts", "Printing & Flex"];
 
   // Filtered Festivals
   const filteredFestivals = useMemo(() => {
@@ -377,14 +379,16 @@ export default function FestivalCelebrationsTab({
 
         <div className="flex items-center gap-3">
           {/* Download Audit Report Button */}
-          <button
-            onClick={onOpenAuditReport}
-            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold px-3.5 sm:px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition transform active:scale-95"
-            title="Download Comprehensive Society Audit Statement"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Download Audit Report</span>
-          </button>
+          {!isGuest && (
+            <button
+              onClick={onOpenAuditReport}
+              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold px-3.5 sm:px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition transform active:scale-95"
+              title="Download Comprehensive Society Audit Statement"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Download Audit Report</span>
+            </button>
+          )}
 
           {/* Add Festival Button */}
           {canEdit && (
@@ -493,13 +497,16 @@ export default function FestivalCelebrationsTab({
                   {/* Title & Description */}
                   <h3
                     onClick={() => {
+                      if (isGuest) return;
                       setActiveFestivalDetail(fest);
                       setDetailActiveTab("overview");
                     }}
-                    className="text-lg sm:text-xl font-extrabold text-white leading-snug cursor-pointer group-hover:text-amber-300 transition flex items-center justify-between"
+                    className={`text-lg sm:text-xl font-extrabold text-white leading-snug transition flex items-center justify-between ${
+                      isGuest ? "cursor-default" : "cursor-pointer group-hover:text-amber-300"
+                    }`}
                   >
                     <span>{fest.festival_name}</span>
-                    <ChevronRight className="w-5 h-5 text-amber-400 opacity-80 group-hover:translate-x-1 transition" />
+                    {!isGuest && <ChevronRight className="w-5 h-5 text-amber-400 opacity-80 group-hover:translate-x-1 transition" />}
                   </h3>
                   <p className="text-xs text-slate-300 mt-2 leading-relaxed">{fest.description}</p>
 
@@ -545,23 +552,25 @@ export default function FestivalCelebrationsTab({
                   )}
 
                   {/* Collections vs Expenses Mini Bar */}
-                  <div className="mt-4 p-3.5 bg-slate-950/80 rounded-xl border border-amber-800/40 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Resident Collections</span>
-                      <p className="font-extrabold text-emerald-300 font-mono mt-0.5 text-sm">
-                        ₹ {totalCol.toLocaleString("en-IN")}{" "}
-                        <span className="text-slate-500 font-normal text-xs">({colList.length} donors)</span>
-                      </p>
-                    </div>
+                  {!isGuest && (
+                    <div className="mt-4 p-3.5 bg-slate-950/80 rounded-xl border border-amber-800/40 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Resident Collections</span>
+                        <p className="font-extrabold text-emerald-300 font-mono mt-0.5 text-sm">
+                          ₹ {totalCol.toLocaleString("en-IN")}{" "}
+                          <span className="text-slate-500 font-normal text-xs">({colList.length} donors)</span>
+                        </p>
+                      </div>
 
-                    <div className="text-right">
-                      <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">Approved Expenses</span>
-                      <p className="font-extrabold text-rose-300 font-mono mt-0.5 text-sm">
-                        ₹ {totalExp.toLocaleString("en-IN")}{" "}
-                        <span className="text-slate-500 font-normal text-xs">({expList.length} bills)</span>
-                      </p>
+                      <div className="text-right">
+                        <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">Approved Expenses</span>
+                        <p className="font-extrabold text-rose-300 font-mono mt-0.5 text-sm">
+                          ₹ {totalExp.toLocaleString("en-IN")}{" "}
+                          <span className="text-slate-500 font-normal text-xs">({expList.length} bills)</span>
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Bottom Action Button */}
@@ -570,16 +579,20 @@ export default function FestivalCelebrationsTab({
                     Lead: <strong className="text-slate-200">{fest.lead_organizer}</strong>
                   </div>
 
-                  <button
-                    onClick={() => {
-                      setActiveFestivalDetail(fest);
-                      setDetailActiveTab("collections");
-                    }}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-slate-950 bg-amber-500/20 hover:bg-amber-400 px-3.5 py-1.5 rounded-xl border border-amber-400/40 transition shadow-sm"
-                  >
-                    <Receipt className="w-3.5 h-3.5" />
-                    <span>View Financials &amp; Audit</span>
-                  </button>
+                  {isGuest ? (
+                    <span className="text-[11px] text-slate-500 italic">Sign in to view financials</span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setActiveFestivalDetail(fest);
+                        setDetailActiveTab("collections");
+                      }}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-slate-950 bg-amber-500/20 hover:bg-amber-400 px-3.5 py-1.5 rounded-xl border border-amber-400/40 transition shadow-sm"
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
+                      <span>View Financials &amp; Audit</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -715,7 +728,7 @@ export default function FestivalCelebrationsTab({
                           required
                           value={collData.flat_no}
                           onChange={(e) => setCollData({ ...collData, flat_no: e.target.value })}
-                          placeholder="e.g. 402"
+                          placeholder="e.g. G01, 101, 705, 1403 (Ground + 14 Floors)"
                           className="w-full text-xs p-2 rounded-xl bg-slate-800 border border-slate-700 text-white"
                         />
                       </div>
@@ -883,30 +896,46 @@ export default function FestivalCelebrationsTab({
                             </td>
                             <td className="p-2.5 text-slate-400">{col.collected_date}</td>
                             <td className="p-2.5 text-right">
-                              {canEdit ? (
-                                <div className="flex items-center justify-end gap-1.5">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {col.receipt_url && (
                                   <button
-                                    onClick={() => setEditingCollection(col)}
-                                    className="text-slate-400 hover:text-amber-300 p-1"
-                                    title="Edit Collection"
+                                    onClick={() =>
+                                      setPreviewDoc({
+                                        url: col.receipt_url!,
+                                        title: `Collection Receipt: ${col.donor_name} (Flat ${col.flat_no})`,
+                                      })
+                                    }
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/80 text-emerald-300 rounded-lg text-xs font-bold transition shadow-xs"
+                                    title="View Attached Receipt / Proof"
                                   >
-                                    <Edit className="w-3.5 h-3.5" />
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>View Receipt</span>
                                   </button>
-                                  <button
-                                    onClick={() => {
-                                      if (confirm(`Delete collection entry for ${col.donor_name}?`)) {
-                                        onDeleteCollection(col.id);
-                                      }
-                                    }}
-                                    className="text-slate-400 hover:text-rose-400 p-1"
-                                    title="Delete Collection"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <span className="text-[10px] text-slate-500 font-mono">Audited</span>
-                              )}
+                                )}
+
+                                {canEdit && (
+                                  <>
+                                    <button
+                                      onClick={() => setEditingCollection(col)}
+                                      className="text-slate-400 hover:text-amber-300 p-1"
+                                      title="Edit Collection"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Delete collection entry for ${col.donor_name}?`)) {
+                                          onDeleteCollection(col.id);
+                                        }
+                                      }}
+                                      className="text-slate-400 hover:text-rose-400 p-1"
+                                      title="Delete Collection"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -1007,13 +1036,11 @@ export default function FestivalCelebrationsTab({
 
                     <div className="grid grid-cols-2 gap-2.5">
                       <div>
-                        <label className="block text-[10px] font-semibold text-slate-400 mb-1">Designated Approver</label>
-                        <input
-                          type="text"
+                        <DynamicSelect
+                          label="Designated Approver"
                           value={expData.approver_name}
-                          onChange={(e) => setExpData({ ...expData, approver_name: e.target.value })}
-                          placeholder="Vikram Patel (Treasurer)"
-                          className="w-full text-xs p-2 rounded-xl bg-slate-800 border border-slate-700 text-white"
+                          onChange={(val) => setExpData({ ...expData, approver_name: val })}
+                          options={teamMemberNames.length ? teamMemberNames : ["Vikram Patel", "Rajesh Sharma", "Ananya Roy"]}
                         />
                       </div>
 
@@ -1127,21 +1154,42 @@ export default function FestivalCelebrationsTab({
                             {exp.invoice_url && (
                               <>
                                 <span>•</span>
-                                <a
-                                  href={exp.invoice_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-sky-400 hover:underline flex items-center gap-0.5"
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPreviewDoc({
+                                      url: exp.invoice_url!,
+                                      title: `Expense Invoice: ${exp.title} (₹${exp.amount.toLocaleString("en-IN")})`,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 font-bold hover:underline"
                                 >
-                                  <Paperclip className="w-3 h-3" />
-                                  <span>Bill Proof</span>
-                                </a>
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>View Bill / Proof</span>
+                                </button>
                               </>
                             )}
                           </div>
                         </div>
 
                         <div className="flex items-center gap-2.5 self-end sm:self-center">
+                          {exp.invoice_url && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewDoc({
+                                  url: exp.invoice_url!,
+                                  title: `Expense Invoice: ${exp.title} (₹${exp.amount.toLocaleString("en-IN")})`,
+                                })
+                              }
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-950/80 hover:bg-sky-900 border border-sky-600/80 text-sky-300 rounded-lg text-xs font-bold transition shadow-xs"
+                              title="View Attached Invoice / Bill"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View Bill</span>
+                            </button>
+                          )}
+
                           <span className="font-mono font-bold text-rose-400 text-sm">
                             ₹ {exp.amount.toLocaleString("en-IN")}
                           </span>
@@ -1616,14 +1664,11 @@ export default function FestivalCelebrationsTab({
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Approver Name</label>
-                <input
-                  type="text"
+                <DynamicSelect
+                  label="Designated Approver"
                   value={editingExpense.approver_name}
-                  onChange={(e) =>
-                    setEditingExpense({ ...editingExpense, approver_name: e.target.value })
-                  }
-                  className="w-full text-xs p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white"
+                  onChange={(val) => setEditingExpense({ ...editingExpense, approver_name: val })}
+                  options={teamMemberNames.length ? teamMemberNames : ["Vikram Patel", "Rajesh Sharma", "Ananya Roy"]}
                 />
               </div>
             </div>
@@ -1653,6 +1698,14 @@ export default function FestivalCelebrationsTab({
           </form>
         </Modal>
       )}
+
+      {/* Reusable Document & Receipt Preview Modal */}
+      <DocumentPreviewModal
+        isOpen={Boolean(previewDoc)}
+        onClose={() => setPreviewDoc(null)}
+        url={previewDoc?.url}
+        title={previewDoc?.title}
+      />
     </div>
   );
 }

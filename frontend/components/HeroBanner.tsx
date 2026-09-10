@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { SocietyStats } from "../lib/types";
+import { SocietyStats, AppUser } from "../lib/types";
 import {
   Calendar,
   Sparkles,
@@ -22,9 +22,10 @@ interface HeroBannerProps {
   stats: SocietyStats | null;
   onSelectTab: (tabId: string) => void;
   onOpenAuditReport?: () => void;
+  currentUser?: AppUser | null;
 }
 
-export default function HeroBanner({ stats, onSelectTab, onOpenAuditReport }: HeroBannerProps) {
+export default function HeroBanner({ stats, onSelectTab, onOpenAuditReport, currentUser }: HeroBannerProps) {
   return (
     <div className="bg-gradient-to-br from-[#03132e] via-[#072454] to-[#0c4a9e] text-white shadow-xl relative overflow-hidden border-b border-sky-900/40">
       {/* Background glowing orbs */}
@@ -50,7 +51,7 @@ export default function HeroBanner({ stats, onSelectTab, onOpenAuditReport }: He
               <strong className="font-semibold text-white">Cultural Events &amp; Enrolments</strong>,{" "}
               <strong className="font-semibold text-white">Festival Audit &amp; Approvals</strong>,{" "}
               <strong className="font-semibold text-white">GBM Minutes</strong>,{" "}
-              <strong className="font-semibold text-white">Tower Issues (A-F)</strong>, and{" "}
+              <strong className="font-semibold text-white">Tower Issues (Towers A–F, G+14 Floors)</strong>, and{" "}
               <strong className="font-semibold text-amber-300">ADO Builder Deliverables</strong> with Praneeth
               KKR &amp; IGS.
             </p>
@@ -68,19 +69,22 @@ export default function HeroBanner({ stats, onSelectTab, onOpenAuditReport }: He
                 </span>
               </button>
 
-              <button
-                onClick={() => {
-                  if (onOpenAuditReport) {
-                    onOpenAuditReport();
-                  } else {
-                    onSelectTab("festivals");
-                  }
-                }}
-                className="inline-flex items-center gap-2 bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl border border-emerald-500/40 backdrop-blur transition shadow-md shadow-emerald-600/20"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>Financial Audit Report</span>
-              </button>
+              {/* Financial Audit Report - Only visible to authenticated users */}
+              {currentUser && (
+                <button
+                  onClick={() => {
+                    if (onOpenAuditReport) {
+                      onOpenAuditReport();
+                    } else {
+                      onSelectTab("festivals");
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl border border-emerald-500/40 backdrop-blur transition shadow-md shadow-emerald-600/20"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Financial Audit Report</span>
+                </button>
+              )}
 
               <button
                 onClick={() => onSelectTab("vendor-management")}
