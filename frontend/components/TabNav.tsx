@@ -11,6 +11,7 @@ import {
   Briefcase,
   History,
   Building2,
+  Mail,
 } from "lucide-react";
 import { AppUser } from "../lib/types";
 
@@ -42,6 +43,7 @@ interface TabNavProps {
     team?: number;
     vendors?: number;
     history?: number;
+    dlGroups?: number;
   };
   currentUser?: AppUser | null;
 }
@@ -191,6 +193,22 @@ export default function TabNav({ activeTab, onTabChange, badgeCounts, currentUse
       inactiveBadgeClass: "bg-indigo-950/90 text-indigo-300 border border-indigo-700/80",
       activeIconClass: "text-white",
       inactiveIconClass: "text-indigo-400",
+    },
+    {
+      id: "dl-groups",
+      label: "10. DL Groups & Broadcaster",
+      shortLabel: "DL & Notifications",
+      icon: Mail,
+      badge: badgeCounts.dlGroups,
+      authRequired: true,
+      activeClass:
+        "bg-gradient-to-r from-teal-600 via-emerald-600 to-green-600 text-white shadow-xl shadow-emerald-600/35 border-2 border-emerald-300 ring-2 ring-emerald-400/50 scale-[1.02]",
+      inactiveClass:
+        "bg-slate-900/90 text-emerald-200/90 hover:text-white hover:bg-emerald-950/60 border border-emerald-900/50 hover:border-emerald-600/70",
+      activeBadgeClass: "bg-white/25 text-white border border-white/40 shadow-inner",
+      inactiveBadgeClass: "bg-emerald-950/90 text-emerald-300 border border-emerald-700/80",
+      activeIconClass: "text-white",
+      inactiveIconClass: "text-emerald-400",
     },
   ];
 

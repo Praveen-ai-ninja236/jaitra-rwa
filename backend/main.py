@@ -845,3 +845,210 @@ def delete_team_member(member_id: int, db: Session = Depends(get_db)):
     db.delete(db_member)
     db.commit()
     return {"message": "Team member deleted"}
+
+
+# ----------------- 7. DISTRIBUTION LISTS (DL GROUPS) & MEMBERS & NOTIFICATIONS -----------------
+
+class DLMemberBase(BaseModel):
+    name: str
+    tower: Optional[str] = "Tower A"
+    flat_no: Optional[str] = ""
+    email: str
+    phone: str
+    status: Optional[str] = "Active"
+    role_tag: Optional[str] = "Owner"
+    notes: Optional[str] = ""
+
+class DLMemberCreate(DLMemberBase):
+    pass
+
+class DLMemberSchema(DLMemberBase):
+    id: int
+    group_id: int
+    created_at: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class DLGroupBase(BaseModel):
+    group_name: str
+    group_code: Optional[str] = ""
+    description: Optional[str] = ""
+    category: Optional[str] = "General"
+    sender_email: Optional[str] = "jaitra-association-hyd@googlegroups.com"
+    is_system: Optional[int] = 0
+
+class DLGroupCreate(DLGroupBase):
+    pass
+
+class DLGroupSchema(DLGroupBase):
+    id: int
+    total_members: Optional[int] = 0
+    active_members: Optional[int] = 0
+    inactive_members: Optional[int] = 0
+    created_at: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class BroadcastNotificationCreate(BaseModel):
+    subject: str
+    category: Optional[str] = "General Notice"
+    channel: Optional[str] = "Email"
+    sender_email: Optional[str] = "jaitra-association-hyd@googlegroups.com"
+    sender_name: Optional[str] = "Jaitra Residents Welfare Association"
+    group_ids: Optional[str] = ""
+    group_names: Optional[str] = ""
+    target_tower: Optional[str] = "All"
+    active_recipients_count: Optional[int] = 0
+    total_target_count: Optional[int] = 0
+    message_body: str
+    event_or_meeting_ref: Optional[str] = ""
+    doc_link: Optional[str] = ""
+    sent_by: Optional[str] = "Admin"
+    status: Optional[str] = "Dispatched"
+
+class BroadcastNotificationSchema(BroadcastNotificationCreate):
+    id: int
+    sent_at: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class BulkStatusUpdate(BaseModel):
+    memberIds: List[int]
+    status: str
+
+class BulkDeleteRequest(BaseModel):
+    memberIds: List[int]
+
+class RecipientsQuery(BaseModel):
+    groupIds: List[int]
+    tower: Optional[str] = "All"
+
+
+@app.get("/api/dl-groups", response_model=List[DLGroupSchema])
+def get_dl_groups(category: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(models.DLGroupModel)
+    if category and category != "All":
+        query = query.filter(models.DLGroupModel.category == category)
+    groups = query.order_by(models.DLGroupModel.id.asc()).all()
+    results = []
+    for g in groups:
+        total = db.query(models.DLMemberModel).filter(models.DLMemberModel.group_id == g.id).count()
+        active = db.query(models.DLMemberModel).filter(models.DLMemberModel.group_id == g.id, models.DLMemberModel.status == "Active").count()
+        inactive = total - active
+        results.append(DLGroupSchema(
+            id=g.id,
+            group_name=g.group_name,
+            group_code=g.group_code,
+            description=g.description,
+            category=g.category,
+            sender_email=g.sender_email,
+            is_system=g.is_system,
+            total_members=total,
+            active_members=active,
+            inactive_members=inactive,
+            created_at=str(g.created_at) if g.created_at else None
+        ))
+    return results
+
+@app.post("/api/dl-groups", response_model=DLGroupSchema)
+def create_dl_group(group: DLGroupCreate, db: Session = Depends(get_db)):
+    code = group.group_code.strip().upper() if group.group_code else f"DL-{datetime.datetime.now().strftime('%M%S')}"
+    new_g = models.DLGroupModel(
+        group_name=group.group_name.strip(),
+        group_code=code,
+        description=group.description or "",
+        category=group.category or "General",
+        sender_email=group.sender_email or "jaitra-association-hyd@googlegroups.com",
+        is_system=group.is_system or 0,
+        created_at=datetime.datetime.now().isoformat()
+    )
+    db.add(new_g)
+    db.commit()
+    db.refresh(new_g)
+    return DLGroupSchema(
+        id=new_g.id,
+        group_name=new_g.group_name,
+        group_code=new_g.group_code,
+        description=new_g.description,
+        category=new_g.category,
+        sender_email=new_g.sender_email,
+        is_system=new_g.is_system,
+        total_members=0,
+        active_members=0,
+        inactive_members=0,
+        created_at=new_g.created_at
+    )
+
+@app.get("/api/dl-members", response_model=List[DLMemberSchema])
+def get_dl_members(
+    groupId: Optional[int] = None,
+    status: Optional[str] = None,
+    tower: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(models.DLMemberModel)
+    if groupId:
+        query = query.filter(models.DLMemberModel.group_id == groupId)
+    if status and status != "All":
+        query = query.filter(models.DLMemberModel.status == status)
+    if tower and tower != "All":
+        query = query.filter(models.DLMemberModel.tower == tower)
+    if search:
+        query = query.filter(
+            models.DLMemberModel.name.ilike(f"%{search}%") |
+            models.DLMemberModel.email.ilike(f"%{search}%") |
+            models.DLMemberModel.phone.ilike(f"%{search}%") |
+            models.DLMemberModel.flat_no.ilike(f"%{search}%")
+        )
+    return query.order_by(models.DLMemberModel.tower.asc(), models.DLMemberModel.flat_no.asc()).all()
+
+@app.post("/api/dl-members", response_model=DLMemberSchema)
+def create_dl_member(member: DLMemberCreate, group_id: int = Query(...), db: Session = Depends(get_db)):
+    new_m = models.DLMemberModel(
+        group_id=group_id,
+        name=member.name.strip(),
+        tower=member.tower or "Tower A",
+        flat_no=member.flat_no.strip() if member.flat_no else "",
+        email=member.email.strip().lower(),
+        phone=member.phone.strip() if member.phone else "",
+        status=member.status or "Active",
+        role_tag=member.role_tag or "Owner",
+        notes=member.notes or "",
+        created_at=datetime.datetime.now().isoformat()
+    )
+    db.add(new_m)
+    db.commit()
+    db.refresh(new_m)
+    return new_m
+
+@app.post("/api/notifications/broadcast", response_model=dict)
+def broadcast_notification(payload: BroadcastNotificationCreate, db: Session = Depends(get_db)):
+    new_notif = models.BroadcastNotificationModel(
+        subject=payload.subject,
+        category=payload.category,
+        channel=payload.channel,
+        sender_email=payload.sender_email,
+        sender_name=payload.sender_name,
+        group_ids=payload.group_ids,
+        group_names=payload.group_names,
+        target_tower=payload.target_tower,
+        active_recipients_count=payload.active_recipients_count,
+        total_target_count=payload.total_target_count,
+        message_body=payload.message_body,
+        event_or_meeting_ref=payload.event_or_meeting_ref,
+        doc_link=payload.doc_link,
+        sent_by=payload.sent_by,
+        status="Dispatched",
+        sent_at=datetime.datetime.now().isoformat()
+    )
+    db.add(new_notif)
+    db.commit()
+    db.refresh(new_notif)
+    return {
+        "success": True,
+        "message": f"Broadcast '{payload.subject}' logged successfully",
+        "notification_id": new_notif.id
+    }
+
+@app.get("/api/notifications/history", response_model=List[BroadcastNotificationSchema])
+def get_broadcast_history(limit: int = 100, db: Session = Depends(get_db)):
+    return db.query(models.BroadcastNotificationModel).order_by(models.BroadcastNotificationModel.id.desc()).limit(limit).all()
+

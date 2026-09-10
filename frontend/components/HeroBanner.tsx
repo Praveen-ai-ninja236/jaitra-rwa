@@ -16,6 +16,7 @@ import {
   Coins,
   FileSpreadsheet,
   Briefcase,
+  Mail,
 } from "lucide-react";
 
 interface HeroBannerProps {
@@ -93,6 +94,16 @@ export default function HeroBanner({ stats, onSelectTab, onOpenAuditReport, curr
                 <Briefcase className="w-4 h-4" />
                 <span>Vendors &amp; AMCs</span>
               </button>
+
+              {currentUser && (
+                <button
+                  onClick={() => onSelectTab("dl-groups")}
+                  className="inline-flex items-center gap-2 bg-gradient-to-r from-emerald-600/90 to-teal-600/90 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl border border-emerald-400/40 backdrop-blur transition shadow-md shadow-emerald-600/20"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>DL Broadcaster</span>
+                </button>
+              )}
 
               <button
                 onClick={() => onSelectTab("issues")}

@@ -13,6 +13,7 @@ import TeamListTab from "../components/TeamListTab";
 import VendorManagementTab from "../components/VendorManagementTab";
 import ChangeHistoryTab from "../components/ChangeHistoryTab";
 import FlatSummaryTab from "../components/FlatSummaryTab";
+import DLNotificationGroupsTab from "../components/DLNotificationGroupsTab";
 import AuditReportModal from "../components/AuditReportModal";
 import {
   CulturalEvent,
@@ -39,6 +40,7 @@ import {
   VendorContract,
   VendorContractCreate,
   DropdownCategoryMap,
+  DLGroup,
 } from "../lib/types";
 import * as api from "../lib/api";
 import {
@@ -70,6 +72,7 @@ export default function JaitraPortal() {
   const [vendors, setVendors] = useState<VendorContract[]>([]);
   const [dropdownMap, setDropdownMap] = useState<DropdownCategoryMap>({});
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [dlGroups, setDlGroups] = useState<DLGroup[]>([]);
 
   // User & Auth State (Defaults to null -> strict View Only for unauthenticated visitors)
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
@@ -121,7 +124,7 @@ export default function JaitraPortal() {
       } catch (e) {}
 
       const hash = window.location.hash.replace("#", "");
-      const allTabs = ["culture-events", "festivals", "gbm", "issues", "ado-board", "team", "vendor-management", "change-history", "flat-summary"];
+      const allTabs = ["culture-events", "festivals", "gbm", "issues", "ado-board", "team", "vendor-management", "change-history", "flat-summary", "dl-groups"];
       if (allTabs.includes(hash)) {
         setActiveTab(hash);
       }
@@ -131,7 +134,7 @@ export default function JaitraPortal() {
   // Redirect to public tab if on a restricted tab without auth or if unauthorized role visits protected tab
   useEffect(() => {
     if (!currentUser) {
-      const restrictedTabs = ["issues", "ado-board", "team", "vendor-management", "change-history", "flat-summary"];
+      const restrictedTabs = ["issues", "ado-board", "team", "vendor-management", "change-history", "flat-summary", "dl-groups"];
       if (restrictedTabs.includes(activeTab)) {
         setActiveTab("culture-events");
         if (typeof window !== "undefined") {
@@ -179,6 +182,7 @@ export default function JaitraPortal() {
         auditData,
         dropdownData,
         usersData,
+        dlGroupsData,
       ] = await Promise.all([
         api.getStats().catch(() => null),
         api.getCulturalEvents().catch(() => []),
@@ -191,6 +195,7 @@ export default function JaitraPortal() {
         api.getAuditTransactions().catch(() => []),
         api.getDropdownSettingsMap().catch(() => ({})),
         api.getUsers().catch(() => []),
+        api.getDLGroups().catch(() => []),
       ]);
 
       if (statsData) setStats(statsData);
@@ -204,6 +209,7 @@ export default function JaitraPortal() {
       setAuditTransactions(auditData);
       setDropdownMap(dropdownData);
       setUsers(usersData);
+      setDlGroups(dlGroupsData);
       setIsBackendConnected(true);
     } catch (err) {
       console.warn("Backend fetch failed, running with local state", err);
@@ -733,6 +739,7 @@ export default function JaitraPortal() {
           adoTasks: adoTasks.filter((t) => t.status !== "Closed").length,
           team: teamMembers.length,
           vendors: vendors.length,
+          dlGroups: dlGroups.length,
         }}
       />
 
@@ -860,6 +867,18 @@ export default function JaitraPortal() {
             users={users}
             userRole={currentUser?.role || "User"}
             currentUser={currentUser}
+          />
+        )}
+
+        {activeTab === "dl-groups" && (
+          <DLNotificationGroupsTab
+            userRole={currentUser?.role || "User"}
+            isGuest={!currentUser}
+            currentUser={currentUser}
+            gbmMeetings={meetings}
+            festivals={festivals}
+            culturalEvents={culturalEvents}
+            onShowToast={showToast}
           />
         )}
       </main>

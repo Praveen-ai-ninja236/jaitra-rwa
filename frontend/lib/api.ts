@@ -33,6 +33,14 @@ import {
   VendorContract,
   VendorContractCreate,
   AuditLogEntry,
+  DLGroup,
+  DLGroupCreate,
+  DLMember,
+  DLMemberCreate,
+  DLMemberStatus,
+  BroadcastNotification,
+  BroadcastNotificationCreate,
+  BroadcastTargetSummary,
 } from "./types";
 
 const API_BASE_URL =
@@ -546,5 +554,153 @@ export async function createAuditLog(entry: {
     body: JSON.stringify(entry),
   });
 }
+
+// ----------------- 11. DISTRIBUTION LISTS (DL GROUPS) & NOTIFICATIONS -----------------
+
+export async function getDLGroups(category?: string): Promise<DLGroup[]> {
+  const params = new URLSearchParams();
+  if (category && category !== "All") params.append("category", category);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return fetchJSON<DLGroup[]>(`/api/dl-groups${qs}`);
+}
+
+export async function getDLGroup(id: number): Promise<DLGroup> {
+  return fetchJSON<DLGroup>(`/api/dl-groups/${id}`);
+}
+
+export async function createDLGroup(data: DLGroupCreate): Promise<DLGroup> {
+  return fetchJSON<DLGroup>("/api/dl-groups", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateDLGroup(id: number, data: Partial<DLGroupCreate>): Promise<DLGroup> {
+  return fetchJSON<DLGroup>(`/api/dl-groups/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteDLGroup(id: number): Promise<{ message: string }> {
+  return fetchJSON<{ message: string }>(`/api/dl-groups/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getDLMembers(
+  groupId?: number,
+  status?: string,
+  tower?: string,
+  search?: string
+): Promise<DLMember[]> {
+  const params = new URLSearchParams();
+  if (groupId && groupId > 0) params.append("groupId", groupId.toString());
+  if (status && status !== "All") params.append("status", status);
+  if (tower && tower !== "All") params.append("tower", tower);
+  if (search && search.trim()) params.append("search", search.trim());
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return fetchJSON<DLMember[]>(`/api/dl-members${qs}`);
+}
+
+export async function getDLMember(id: number): Promise<DLMember> {
+  return fetchJSON<DLMember>(`/api/dl-members/${id}`);
+}
+
+export async function createDLMember(groupId: number, data: DLMemberCreate): Promise<DLMember> {
+  return fetchJSON<DLMember>("/api/dl-members", {
+    method: "POST",
+    body: JSON.stringify({ ...data, group_id: groupId }),
+  });
+}
+
+export async function updateDLMember(id: number, data: Partial<DLMemberCreate>): Promise<DLMember> {
+  return fetchJSON<DLMember>(`/api/dl-members/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteDLMember(id: number): Promise<{ message: string }> {
+  return fetchJSON<{ message: string }>(`/api/dl-members/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function bulkUploadDLMembers(
+  groupId: number,
+  members: DLMemberCreate[],
+  mode: "append" | "replace" = "append"
+): Promise<{ insertedCount: number; members: DLMember[] }> {
+  return fetchJSON<{ insertedCount: number; members: DLMember[] }>(`/api/dl-groups/${groupId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ members, mode }),
+  });
+}
+
+export async function bulkUpdateDLMembersStatus(
+  memberIds: number[],
+  status: DLMemberStatus
+): Promise<{ updatedCount: number }> {
+  return fetchJSON<{ updatedCount: number }>("/api/dl-members/bulk-status", {
+    method: "POST",
+    body: JSON.stringify({ memberIds, status }),
+  });
+}
+
+export async function bulkDeleteDLMembers(memberIds: number[]): Promise<{ deletedCount: number }> {
+  return fetchJSON<{ deletedCount: number }>("/api/dl-members/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ memberIds }),
+  });
+}
+
+export async function bulkMoveDLMembers(
+  memberIds: number[],
+  targetGroupId: number,
+  mode: "move" | "copy" = "move"
+): Promise<{ processedCount: number }> {
+  return fetchJSON<{ processedCount: number }>("/api/dl-members/bulk-move", {
+    method: "POST",
+    body: JSON.stringify({ memberIds, targetGroupId, mode }),
+  });
+}
+
+export async function batchUpdateDLMembers(
+  updates: Array<{ id: number; name?: string; tower?: string; flat_no?: string; email?: string; phone?: string; status?: DLMemberStatus; role_tag?: string; notes?: string }>
+): Promise<{ updatedCount: number }> {
+  return fetchJSON<{ updatedCount: number }>("/api/dl-members/batch-update", {
+    method: "POST",
+    body: JSON.stringify({ updates }),
+  });
+}
+
+export async function getActiveRecipientsSummary(
+  groupIds: number[],
+  tower?: string
+): Promise<BroadcastTargetSummary> {
+  return fetchJSON<BroadcastTargetSummary>("/api/notifications/recipients", {
+    method: "POST",
+    body: JSON.stringify({ groupIds, tower }),
+  });
+}
+
+export async function sendBroadcastNotification(
+  data: BroadcastNotificationCreate
+): Promise<{ success: boolean; message: string; notification: BroadcastNotification }> {
+  return fetchJSON<{ success: boolean; message: string; notification: BroadcastNotification }>(
+    "/api/notifications/broadcast",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export async function getBroadcastHistory(limit?: number): Promise<BroadcastNotification[]> {
+  const url = limit ? `/api/notifications/history?limit=${limit}` : "/api/notifications/history";
+  return fetchJSON<BroadcastNotification[]>(url);
+}
+
 
 

@@ -196,3 +196,57 @@ class TeamMemberModel(Base):
     term = Column(String(50), default="2025-2027")
     sub_committee = Column(String(100), nullable=True)
     status = Column(String(50), default="Active")
+
+
+# 7. Distribution Lists (DL Groups) & Members & Notifications
+class DLGroupModel(Base):
+    __tablename__ = "dl_groups"
+    id = Column(Integer, primary_key=True, index=True)
+    group_name = Column(String(200), nullable=False)
+    group_code = Column(String(50), unique=True, index=True, nullable=False)
+    description = Column(Text, nullable=True, default="")
+    category = Column(String(100), default="General")
+    sender_email = Column(String(150), default="jaitra-association-hyd@googlegroups.com")
+    is_system = Column(Integer, default=0)
+    created_at = Column(String(50), nullable=True)
+
+    members = relationship("DLMemberModel", back_populates="group", cascade="all, delete-orphan")
+
+
+class DLMemberModel(Base):
+    __tablename__ = "dl_members"
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("dl_groups.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(150), nullable=False)
+    tower = Column(String(50), default="Tower A")
+    flat_no = Column(String(50), default="")
+    email = Column(String(150), nullable=False)
+    phone = Column(String(50), nullable=False)
+    status = Column(String(20), default="Active")
+    role_tag = Column(String(50), default="Owner")
+    notes = Column(Text, nullable=True, default="")
+    created_at = Column(String(50), nullable=True)
+
+    group = relationship("DLGroupModel", back_populates="members")
+
+
+class BroadcastNotificationModel(Base):
+    __tablename__ = "broadcast_notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    subject = Column(String(255), nullable=False)
+    category = Column(String(100), default="General Notice")
+    channel = Column(String(50), default="Email")
+    sender_email = Column(String(150), default="jaitra-association-hyd@googlegroups.com")
+    sender_name = Column(String(150), default="Jaitra Residents Welfare Association")
+    group_ids = Column(String(255), nullable=True, default="")
+    group_names = Column(Text, nullable=True, default="")
+    target_tower = Column(String(50), default="All")
+    active_recipients_count = Column(Integer, default=0)
+    total_target_count = Column(Integer, default=0)
+    message_body = Column(Text, nullable=False)
+    event_or_meeting_ref = Column(String(255), nullable=True, default="")
+    doc_link = Column(String(255), nullable=True, default="")
+    sent_by = Column(String(150), default="Admin")
+    status = Column(String(50), default="Dispatched")
+    sent_at = Column(String(50), nullable=True)
+

@@ -33,6 +33,14 @@ import {
   UserRole,
   VendorContract,
   VendorContractCreate,
+  DLGroup,
+  DLGroupCreate,
+  DLMember,
+  DLMemberCreate,
+  DLMemberStatus,
+  BroadcastNotification,
+  BroadcastNotificationCreate,
+  BroadcastTargetSummary,
 } from "./types";
 
 // Neon Database URL - checking all potential environment variables
@@ -1509,5 +1517,685 @@ export async function getAuditLogs(limit = 200): Promise<any[]> {
     return [];
   }
 }
+
+// ----------------- 11. DISTRIBUTION LISTS (DL GROUPS) & BROADCAST NOTIFICATIONS -----------------
+
+export async function ensureDLTables(): Promise<void> {
+  try {
+    // 1. DL Groups Table
+    await runQuery(`
+      CREATE TABLE IF NOT EXISTS dl_groups (
+        id SERIAL PRIMARY KEY,
+        group_name VARCHAR(200) NOT NULL,
+        group_code VARCHAR(50) UNIQUE NOT NULL,
+        description TEXT DEFAULT '',
+        category VARCHAR(100) DEFAULT 'General',
+        sender_email VARCHAR(150) DEFAULT 'jaitra-association-hyd@googlegroups.com',
+        is_system BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // 2. DL Members Table (Name, Tower, Flat No, Email, Mobile, Status, Role Tag)
+    await runQuery(`
+      CREATE TABLE IF NOT EXISTS dl_members (
+        id SERIAL PRIMARY KEY,
+        group_id INTEGER NOT NULL REFERENCES dl_groups(id) ON DELETE CASCADE,
+        name VARCHAR(150) NOT NULL,
+        tower VARCHAR(50) NOT NULL DEFAULT 'Tower A',
+        flat_no VARCHAR(50) NOT NULL DEFAULT '',
+        email VARCHAR(150) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'Active',
+        role_tag VARCHAR(50) DEFAULT 'Owner',
+        notes TEXT DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // 3. Broadcast Notifications History Table
+    await runQuery(`
+      CREATE TABLE IF NOT EXISTS broadcast_notifications (
+        id SERIAL PRIMARY KEY,
+        subject VARCHAR(255) NOT NULL,
+        category VARCHAR(100) NOT NULL DEFAULT 'General Notice',
+        channel VARCHAR(50) NOT NULL DEFAULT 'Email',
+        sender_email VARCHAR(150) NOT NULL DEFAULT 'jaitra-association-hyd@googlegroups.com',
+        sender_name VARCHAR(150) NOT NULL DEFAULT 'Jaitra Residents Welfare Association',
+        group_ids VARCHAR(255) DEFAULT '',
+        group_names TEXT DEFAULT '',
+        target_tower VARCHAR(50) DEFAULT 'All',
+        active_recipients_count INTEGER NOT NULL DEFAULT 0,
+        total_target_count INTEGER NOT NULL DEFAULT 0,
+        message_body TEXT NOT NULL,
+        event_or_meeting_ref VARCHAR(255) DEFAULT '',
+        doc_link VARCHAR(255) DEFAULT '',
+        sent_by VARCHAR(150) DEFAULT 'Admin',
+        status VARCHAR(50) DEFAULT 'Dispatched',
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Seed default system DL groups if none exist
+    const countCheck = await runQuery("SELECT COUNT(*) as cnt FROM dl_groups");
+    const groupCount = parseInt(countCheck[0]?.cnt || "0");
+
+    if (groupCount === 0) {
+      const defaultGroups = [
+        {
+          name: "All Residents & Owners DL",
+          code: "DL-ALL",
+          desc: "Official comprehensive broadcast group for all active flat owners and residents across Towers A-F.",
+          cat: "All Society",
+          is_system: true,
+        },
+        {
+          name: "Tower A Residents DL",
+          code: "DL-TWA",
+          desc: "Dedicated group for Tower A residents, owners and block coordinators.",
+          cat: "Tower Specific",
+          is_system: true,
+        },
+        {
+          name: "Tower B Residents DL",
+          code: "DL-TWB",
+          desc: "Dedicated group for Tower B residents, owners and block coordinators.",
+          cat: "Tower Specific",
+          is_system: true,
+        },
+        {
+          name: "Tower C Residents DL",
+          code: "DL-TWC",
+          desc: "Dedicated group for Tower C residents, owners and block coordinators.",
+          cat: "Tower Specific",
+          is_system: true,
+        },
+        {
+          name: "Tower D Residents DL",
+          code: "DL-TWD",
+          desc: "Dedicated group for Tower D residents, owners and block coordinators.",
+          cat: "Tower Specific",
+          is_system: true,
+        },
+        {
+          name: "Tower E Residents DL",
+          code: "DL-TWE",
+          desc: "Dedicated group for Tower E residents, owners and block coordinators.",
+          cat: "Tower Specific",
+          is_system: true,
+        },
+        {
+          name: "Tower F Residents DL",
+          code: "DL-TWF",
+          desc: "Dedicated group for Tower F residents, owners and block coordinators.",
+          cat: "Tower Specific",
+          is_system: true,
+        },
+        {
+          name: "Cultural & Festival Committee DL",
+          code: "DL-CULTURE",
+          desc: "Distribution group for cultural event participants, festival organizers, volunteers, and puja sponsors.",
+          cat: "Events & Cultural",
+          is_system: true,
+        },
+        {
+          name: "GBM Active Voting Members DL",
+          code: "DL-GBM",
+          desc: "Registered flat owners eligible for General Body Meetings (GBM/AGM) notices and resolution voting.",
+          cat: "GBM & Governance",
+          is_system: true,
+        },
+        {
+          name: "Emergency & Security Broadcast DL",
+          code: "DL-EMERGENCY",
+          desc: "High-priority emergency alerts list (Power, Lift breakdown, Water supply, Security alerts).",
+          cat: "Emergency",
+          is_system: true,
+        },
+      ];
+
+      for (const g of defaultGroups) {
+        await runQuery(
+          `INSERT INTO dl_groups (group_name, group_code, description, category, sender_email, is_system)
+           VALUES ($1, $2, $3, $4, 'jaitra-association-hyd@googlegroups.com', $5)
+           ON CONFLICT (group_code) DO NOTHING`,
+          [g.name, g.code, g.desc, g.cat, g.is_system]
+        );
+      }
+
+      // Seed initial representative sample members for the main groups
+      const allGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-ALL'");
+      const gbmGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-GBM'");
+      const cultureGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-CULTURE'");
+      const twaGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWA'");
+      const twbGroup = await runQuery("SELECT id FROM dl_groups WHERE group_code = 'DL-TWB'");
+
+      const sampleMembers = [
+        { name: "Praveen Rao", tower: "Tower A", flat: "1204", email: "praveen.rao@jaitra.org", phone: "+91 98450 71001", status: "Active", role: "Owner" },
+        { name: "Suresh Reddy", tower: "Tower A", flat: "302", email: "suresh.reddy@gmail.com", phone: "+91 98450 11223", status: "Active", role: "Owner" },
+        { name: "Ananya Sharma", tower: "Tower A", flat: "704", email: "ananya.sharma@yahoo.com", phone: "+91 97411 33445", status: "Active", role: "Tenant" },
+        { name: "Ramesh Verma", tower: "Tower B", flat: "501", email: "ramesh.verma@gmail.com", phone: "+91 97411 98765", status: "Active", role: "Owner" },
+        { name: "Kavitha Iyer", tower: "Tower B", flat: "803", email: "kavitha.iyer@outlook.com", phone: "+91 98801 44556", status: "Active", role: "Owner" },
+        { name: "Vikram Patel", tower: "Tower C", flat: "404", email: "vikram.patel@jaitra.org", phone: "+91 98451 99001", status: "Active", role: "Owner" },
+        { name: "Neha Kulkarni", tower: "Tower C", flat: "902", email: "neha.kulkarni@gmail.com", phone: "+91 96112 55667", status: "Inactive", role: "Tenant" },
+        { name: "Sunil Kumar", tower: "Tower D", flat: "201", email: "sunil.kumar@gmail.com", phone: "+91 99001 66778", status: "Active", role: "Owner" },
+        { name: "Divya Nambiar", tower: "Tower D", flat: "603", email: "divya.nambiar@gmail.com", phone: "+91 98452 77889", status: "Active", role: "Owner" },
+        { name: "Arun Joshi", tower: "Tower E", flat: "1102", email: "arun.joshi@rediffmail.com", phone: "+91 97403 88990", status: "Active", role: "Owner" },
+        { name: "Meera Nair", tower: "Tower E", flat: "405", email: "meera.nair@gmail.com", phone: "+91 98453 99001", status: "Inactive", role: "Tenant" },
+        { name: "Rajesh Goud", tower: "Tower F", flat: "303", email: "rajesh.goud@gmail.com", phone: "+91 99804 11223", status: "Active", role: "Owner" },
+        { name: "Deepa Menon", tower: "Tower F", flat: "1001", email: "deepa.menon@outlook.com", phone: "+91 98454 22334", status: "Active", role: "Owner" },
+      ];
+
+      if (allGroup.length > 0) {
+        const allGid = allGroup[0].id;
+        for (const m of sampleMembers) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Imported resident record')`,
+            [allGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (gbmGroup.length > 0) {
+        const gbmGid = gbmGroup[0].id;
+        for (const m of sampleMembers.filter((m) => m.role === "Owner")) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Voting eligible flat owner')`,
+            [gbmGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (cultureGroup.length > 0) {
+        const cultureGid = cultureGroup[0].id;
+        for (const m of sampleMembers.slice(0, 7)) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Cultural event volunteer / participant')`,
+            [cultureGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (twaGroup.length > 0) {
+        const twaGid = twaGroup[0].id;
+        for (const m of sampleMembers.filter((m) => m.tower === "Tower A")) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Tower A resident')`,
+            [twaGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+
+      if (twbGroup.length > 0) {
+        const twbGid = twbGroup[0].id;
+        for (const m of sampleMembers.filter((m) => m.tower === "Tower B")) {
+          await runQuery(
+            `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Tower B resident')`,
+            [twbGid, m.name, m.tower, m.flat, m.email, m.phone, m.status, m.role]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error("ensureDLTables error:", err);
+  }
+}
+
+// DL Groups CRUD
+export async function getDLGroups(category?: string): Promise<DLGroup[]> {
+  try {
+    await ensureDLTables();
+    let query = `
+      SELECT g.*,
+        COUNT(m.id)::int as total_members,
+        COUNT(CASE WHEN m.status = 'Active' THEN 1 END)::int as active_members,
+        COUNT(CASE WHEN m.status = 'Inactive' THEN 1 END)::int as inactive_members
+      FROM dl_groups g
+      LEFT JOIN dl_members m ON g.id = m.group_id
+    `;
+    const params: any[] = [];
+    if (category && category !== "All") {
+      query += " WHERE g.category = $1";
+      params.push(category);
+    }
+    query += " GROUP BY g.id ORDER BY g.id ASC";
+
+    const rows = await runQuery(query, params);
+    return rows.map((r: any) => ({
+      ...r,
+      total_members: Number(r.total_members || 0),
+      active_members: Number(r.active_members || 0),
+      inactive_members: Number(r.inactive_members || 0),
+    }));
+  } catch (err) {
+    console.error("getDLGroups error:", err);
+    return [];
+  }
+}
+
+export async function getDLGroup(id: number): Promise<DLGroup | null> {
+  try {
+    await ensureDLTables();
+    const groupRows = await runQuery("SELECT * FROM dl_groups WHERE id = $1", [id]);
+    if (groupRows.length === 0) return null;
+    const group = groupRows[0];
+
+    const members = await runQuery(
+      "SELECT * FROM dl_members WHERE group_id = $1 ORDER BY status ASC, tower ASC, flat_no ASC, id ASC",
+      [id]
+    );
+
+    const activeCount = members.filter((m: any) => m.status === "Active").length;
+    const inactiveCount = members.filter((m: any) => m.status === "Inactive").length;
+
+    return {
+      ...group,
+      total_members: members.length,
+      active_members: activeCount,
+      inactive_members: inactiveCount,
+      members,
+    };
+  } catch (err) {
+    console.error("getDLGroup error:", err);
+    return null;
+  }
+}
+
+export async function createDLGroup(data: DLGroupCreate): Promise<DLGroup> {
+  await ensureDLTables();
+  let code = data.group_code?.trim().toUpperCase();
+  if (!code) {
+    code = `DL-${Date.now().toString().slice(-4)}`;
+  }
+
+  const res = await runQuery(
+    `INSERT INTO dl_groups (group_name, group_code, description, category, sender_email, is_system)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [
+      data.group_name.trim(),
+      code,
+      data.description || "",
+      data.category || "General",
+      data.sender_email?.trim() || "jaitra-association-hyd@googlegroups.com",
+      data.is_system || false,
+    ]
+  );
+  return {
+    ...res[0],
+    total_members: 0,
+    active_members: 0,
+    inactive_members: 0,
+    members: [],
+  };
+}
+
+export async function updateDLGroup(id: number, data: Partial<DLGroupCreate>): Promise<DLGroup> {
+  await ensureDLTables();
+  const fields: string[] = [];
+  const values: any[] = [];
+  let i = 1;
+
+  if (data.group_name !== undefined) { fields.push(`group_name = $${i++}`); values.push(data.group_name.trim()); }
+  if (data.group_code !== undefined) { fields.push(`group_code = $${i++}`); values.push(data.group_code.trim().toUpperCase()); }
+  if (data.description !== undefined) { fields.push(`description = $${i++}`); values.push(data.description); }
+  if (data.category !== undefined) { fields.push(`category = $${i++}`); values.push(data.category); }
+  if (data.sender_email !== undefined) { fields.push(`sender_email = $${i++}`); values.push(data.sender_email.trim()); }
+
+  if (fields.length === 0) return (await getDLGroup(id))!;
+  values.push(id);
+
+  await runQuery(`UPDATE dl_groups SET ${fields.join(", ")} WHERE id = $${i}`, values);
+  return (await getDLGroup(id))!;
+}
+
+export async function deleteDLGroup(id: number): Promise<void> {
+  await ensureDLTables();
+  await runQuery("DELETE FROM dl_members WHERE group_id = $1", [id]);
+  await runQuery("DELETE FROM dl_groups WHERE id = $1", [id]);
+}
+
+// DL Members CRUD & Bulk Operations
+export async function getDLMembers(
+  groupId?: number,
+  status?: string,
+  tower?: string,
+  search?: string
+): Promise<DLMember[]> {
+  try {
+    await ensureDLTables();
+    let query = "SELECT m.*, g.group_name, g.group_code FROM dl_members m JOIN dl_groups g ON m.group_id = g.id";
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let i = 1;
+
+    if (groupId && groupId > 0) {
+      conditions.push(`m.group_id = $${i++}`);
+      params.push(groupId);
+    }
+    if (status && status !== "All") {
+      conditions.push(`m.status = $${i++}`);
+      params.push(status);
+    }
+    if (tower && tower !== "All") {
+      conditions.push(`m.tower = $${i++}`);
+      params.push(tower);
+    }
+    if (search && search.trim()) {
+      conditions.push(`(m.name ILIKE $${i} OR m.email ILIKE $${i} OR m.phone ILIKE $${i} OR m.flat_no ILIKE $${i})`);
+      params.push(`%${search.trim()}%`);
+      i++;
+    }
+
+    if (conditions.length > 0) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+    query += " ORDER BY m.tower ASC, m.flat_no ASC, m.name ASC";
+
+    return await runQuery(query, params);
+  } catch (err) {
+    console.error("getDLMembers error:", err);
+    return [];
+  }
+}
+
+export async function getDLMember(id: number): Promise<DLMember | null> {
+  await ensureDLTables();
+  const rows = await runQuery("SELECT * FROM dl_members WHERE id = $1", [id]);
+  return rows[0] || null;
+}
+
+export async function createDLMember(groupId: number, data: DLMemberCreate): Promise<DLMember> {
+  await ensureDLTables();
+  const res = await runQuery(
+    `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING *`,
+    [
+      groupId,
+      data.name.trim(),
+      data.tower || "Tower A",
+      data.flat_no?.trim() || "",
+      data.email.trim().toLowerCase(),
+      data.phone?.trim() || "",
+      data.status || "Active",
+      data.role_tag || "Owner",
+      data.notes || "",
+    ]
+  );
+  return res[0];
+}
+
+export async function updateDLMember(id: number, data: Partial<DLMemberCreate>): Promise<DLMember> {
+  await ensureDLTables();
+  const fields: string[] = [];
+  const values: any[] = [];
+  let i = 1;
+
+  if (data.group_id !== undefined) { fields.push(`group_id = $${i++}`); values.push(data.group_id); }
+  if (data.name !== undefined) { fields.push(`name = $${i++}`); values.push(data.name.trim()); }
+  if (data.tower !== undefined) { fields.push(`tower = $${i++}`); values.push(data.tower); }
+  if (data.flat_no !== undefined) { fields.push(`flat_no = $${i++}`); values.push(data.flat_no.trim()); }
+  if (data.email !== undefined) { fields.push(`email = $${i++}`); values.push(data.email.trim().toLowerCase()); }
+  if (data.phone !== undefined) { fields.push(`phone = $${i++}`); values.push(data.phone.trim()); }
+  if (data.status !== undefined) { fields.push(`status = $${i++}`); values.push(data.status); }
+  if (data.role_tag !== undefined) { fields.push(`role_tag = $${i++}`); values.push(data.role_tag); }
+  if (data.notes !== undefined) { fields.push(`notes = $${i++}`); values.push(data.notes); }
+
+  if (fields.length === 0) return (await getDLMember(id))!;
+  values.push(id);
+
+  const res = await runQuery(`UPDATE dl_members SET ${fields.join(", ")} WHERE id = $${i} RETURNING *`, values);
+  return res[0];
+}
+
+export async function deleteDLMember(id: number): Promise<void> {
+  await ensureDLTables();
+  await runQuery("DELETE FROM dl_members WHERE id = $1", [id]);
+}
+
+export async function bulkCreateDLMembers(
+  groupId: number,
+  membersList: DLMemberCreate[],
+  mode: "append" | "replace" = "append"
+): Promise<{ insertedCount: number; members: DLMember[] }> {
+  await ensureDLTables();
+  if (mode === "replace") {
+    await runQuery("DELETE FROM dl_members WHERE group_id = $1", [groupId]);
+  }
+
+  const inserted: DLMember[] = [];
+  for (const m of membersList) {
+    if (!m.name || !m.email) continue;
+    const res = await runQuery(
+      `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        groupId,
+        m.name.trim(),
+        m.tower || "Tower A",
+        m.flat_no?.trim() || "",
+        m.email.trim().toLowerCase(),
+        m.phone?.trim() || "",
+        m.status || "Active",
+        m.role_tag || "Owner",
+        m.notes || "Imported via Excel/CSV",
+      ]
+    );
+    if (res[0]) inserted.push(res[0]);
+  }
+
+  return { insertedCount: inserted.length, members: inserted };
+}
+
+export async function bulkUpdateDLMembersStatus(
+  memberIds: number[],
+  status: DLMemberStatus
+): Promise<{ updatedCount: number }> {
+  await ensureDLTables();
+  if (memberIds.length === 0) return { updatedCount: 0 };
+  const placeholders = memberIds.map((_, idx) => `$${idx + 2}`).join(", ");
+  await runQuery(
+    `UPDATE dl_members SET status = $1 WHERE id IN (${placeholders})`,
+    [status, ...memberIds]
+  );
+  return { updatedCount: memberIds.length };
+}
+
+export async function bulkDeleteDLMembers(memberIds: number[]): Promise<{ deletedCount: number }> {
+  await ensureDLTables();
+  if (memberIds.length === 0) return { deletedCount: 0 };
+  const placeholders = memberIds.map((_, idx) => `$${idx + 1}`).join(", ");
+  await runQuery(`DELETE FROM dl_members WHERE id IN (${placeholders})`, memberIds);
+  return { deletedCount: memberIds.length };
+}
+
+export async function bulkMoveDLMembers(
+  memberIds: number[],
+  targetGroupId: number,
+  mode: "move" | "copy" = "move"
+): Promise<{ processedCount: number }> {
+  await ensureDLTables();
+  if (memberIds.length === 0) return { processedCount: 0 };
+
+  if (mode === "move") {
+    const placeholders = memberIds.map((_, idx) => `$${idx + 2}`).join(", ");
+    await runQuery(
+      `UPDATE dl_members SET group_id = $1 WHERE id IN (${placeholders})`,
+      [targetGroupId, ...memberIds]
+    );
+  } else {
+    // copy
+    const placeholders = memberIds.map((_, idx) => `$${idx + 1}`).join(", ");
+    const rows = await runQuery(
+      `SELECT name, tower, flat_no, email, phone, status, role_tag, notes FROM dl_members WHERE id IN (${placeholders})`,
+      memberIds
+    );
+    for (const r of rows) {
+      await runQuery(
+        `INSERT INTO dl_members (group_id, name, tower, flat_no, email, phone, status, role_tag, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [targetGroupId, r.name, r.tower, r.flat_no, r.email, r.phone, r.status, r.role_tag, r.notes]
+      );
+    }
+  }
+
+  return { processedCount: memberIds.length };
+}
+
+export async function batchUpdateDLMembers(
+  updates: Array<{ id: number; name?: string; tower?: string; flat_no?: string; email?: string; phone?: string; status?: DLMemberStatus; role_tag?: string; notes?: string }>
+): Promise<{ updatedCount: number }> {
+  await ensureDLTables();
+  let count = 0;
+  for (const u of updates) {
+    if (!u.id) continue;
+    await updateDLMember(u.id, u);
+    count++;
+  }
+  return { updatedCount: count };
+}
+
+// Target Active Recipients Calculation (STRICTLY ACTIVE ONLY)
+export async function getActiveDLRecipients(
+  groupIds: number[],
+  towerFilter?: string
+): Promise<BroadcastTargetSummary> {
+  await ensureDLTables();
+  if (groupIds.length === 0) {
+    return {
+      totalSelectedGroups: 0,
+      totalTargetMembers: 0,
+      activeRecipientsCount: 0,
+      inactiveExcludedCount: 0,
+      activeRecipients: [],
+      emailsList: [],
+      phonesList: [],
+    };
+  }
+
+  const gPlaceholders = groupIds.map((_, idx) => `$${idx + 1}`).join(", ");
+  let query = `
+    SELECT m.*, g.group_name
+    FROM dl_members m
+    JOIN dl_groups g ON m.group_id = g.id
+    WHERE m.group_id IN (${gPlaceholders})
+  `;
+  const params: any[] = [...groupIds];
+  let pIdx = groupIds.length + 1;
+
+  if (towerFilter && towerFilter !== "All") {
+    query += ` AND m.tower = $${pIdx}`;
+    params.push(towerFilter);
+  }
+
+  const allMembers = await runQuery(query, params);
+  const totalTargetMembers = allMembers.length;
+
+  // Filter ONLY Active members
+  const activeOnly = allMembers.filter((m: any) => m.status === "Active");
+  const inactiveExcludedCount = totalTargetMembers - activeOnly.length;
+
+  // Deduplicate by email and phone
+  const seenEmails = new Set<string>();
+  const seenPhones = new Set<string>();
+  const activeRecipients: Array<{
+    name: string;
+    tower: string;
+    flat_no: string;
+    email: string;
+    phone: string;
+    group_name?: string;
+  }> = [];
+
+  const emailsList: string[] = [];
+  const phonesList: string[] = [];
+
+  for (const m of activeOnly) {
+    const cleanEmail = (m.email || "").trim().toLowerCase();
+    const cleanPhone = (m.phone || "").trim();
+
+    if (cleanEmail && !seenEmails.has(cleanEmail)) {
+      seenEmails.add(cleanEmail);
+      emailsList.push(cleanEmail);
+    }
+    if (cleanPhone && !seenPhones.has(cleanPhone)) {
+      seenPhones.add(cleanPhone);
+      phonesList.push(cleanPhone);
+    }
+
+    activeRecipients.push({
+      name: m.name,
+      tower: m.tower,
+      flat_no: m.flat_no,
+      email: cleanEmail,
+      phone: cleanPhone,
+      group_name: m.group_name,
+    });
+  }
+
+  return {
+    totalSelectedGroups: groupIds.length,
+    totalTargetMembers,
+    activeRecipientsCount: activeRecipients.length,
+    inactiveExcludedCount,
+    activeRecipients,
+    emailsList,
+    phonesList,
+  };
+}
+
+// Broadcast Notifications Logging & History
+export async function getBroadcastNotifications(limit = 100): Promise<BroadcastNotification[]> {
+  try {
+    await ensureDLTables();
+    return await runQuery(
+      `SELECT * FROM broadcast_notifications ORDER BY sent_at DESC, id DESC LIMIT $1`,
+      [limit]
+    );
+  } catch (err) {
+    console.error("getBroadcastNotifications error:", err);
+    return [];
+  }
+}
+
+export async function createBroadcastNotification(
+  data: BroadcastNotificationCreate
+): Promise<BroadcastNotification> {
+  await ensureDLTables();
+  const res = await runQuery(
+    `INSERT INTO broadcast_notifications (
+      subject, category, channel, sender_email, sender_name, group_ids, group_names,
+      target_tower, active_recipients_count, total_target_count, message_body,
+      event_or_meeting_ref, doc_link, sent_by, status, sent_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+    RETURNING *`,
+    [
+      data.subject.trim(),
+      data.category || "General Notice",
+      data.channel || "Email",
+      data.sender_email || "jaitra-association-hyd@googlegroups.com",
+      data.sender_name || "Jaitra Residents Welfare Association",
+      data.group_ids || "",
+      data.group_names || "",
+      data.target_tower || "All",
+      data.active_recipients_count || 0,
+      data.total_target_count || 0,
+      data.message_body || "",
+      data.event_or_meeting_ref || "",
+      data.doc_link || "",
+      data.sent_by || "Admin",
+      data.status || "Dispatched",
+    ]
+  );
+  return res[0];
+}
+
 
 

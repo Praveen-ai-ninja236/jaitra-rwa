@@ -344,3 +344,83 @@ export interface FlatSummaryItem {
   }>;
   total_gbm_attended: number;
 }
+
+// ----------------- DISTRIBUTION LISTS (DL GROUPS) & NOTIFICATIONS -----------------
+export type DLMemberStatus = "Active" | "Inactive";
+
+export interface DLMember {
+  id: number;
+  group_id: number;
+  name: string;
+  tower: string; // Tower A, Tower B, Tower C, Tower D, Tower E, Tower F, Clubhouse, Common Space
+  flat_no: string; // e.g. "101", "1204"
+  email: string;
+  phone: string; // e.g. "+91 98450 12345"
+  status: DLMemberStatus;
+  role_tag?: string; // Owner | Tenant | Committee | Volunteer | Resident
+  notes?: string;
+  created_at?: string;
+}
+
+export type DLMemberCreate = Omit<DLMember, "id" | "created_at" | "group_id"> & {
+  group_id?: number;
+};
+
+export interface DLGroup {
+  id: number;
+  group_name: string;
+  group_code: string; // e.g. "DL-ALL", "DL-TWA", "DL-CULTURE", "DL-GBM"
+  description?: string;
+  category: string; // All Society | Tower Specific | Committee | Events & Cultural | Emergency | GBM & Governance | Custom
+  sender_email: string; // Default: jaitra-association-hyd@googlegroups.com
+  is_system?: boolean;
+  total_members?: number;
+  active_members?: number;
+  inactive_members?: number;
+  members?: DLMember[];
+  created_at?: string;
+}
+
+export type DLGroupCreate = Omit<DLGroup, "id" | "total_members" | "active_members" | "inactive_members" | "members" | "created_at">;
+
+export type NotificationChannel = "Email" | "WhatsApp" | "SMS" | "Multi-Channel";
+
+export interface BroadcastNotification {
+  id: number;
+  subject: string;
+  category: string; // GBM Meeting | Festival Celebration | Cultural Event | Maintenance Alert | General Notice | Emergency Alert
+  channel: NotificationChannel;
+  sender_email: string; // Default: jaitra-association-hyd@googlegroups.com
+  sender_name: string; // Default: Jaitra Residents Welfare Association
+  group_ids?: string; // Comma-separated DL Group IDs e.g. "1,2,3"
+  group_names?: string; // e.g. "All Residents DL, Tower A DL"
+  target_tower?: string; // "All" or "Tower A", etc.
+  active_recipients_count: number;
+  total_target_count: number;
+  message_body: string;
+  event_or_meeting_ref?: string;
+  doc_link?: string;
+  sent_by: string;
+  sent_at: string;
+  status: "Dispatched" | "Draft" | "Failed" | string;
+}
+
+export type BroadcastNotificationCreate = Omit<BroadcastNotification, "id" | "sent_at">;
+
+export interface BroadcastTargetSummary {
+  totalSelectedGroups: number;
+  totalTargetMembers: number;
+  activeRecipientsCount: number;
+  inactiveExcludedCount: number;
+  activeRecipients: Array<{
+    name: string;
+    tower: string;
+    flat_no: string;
+    email: string;
+    phone: string;
+    group_name?: string;
+  }>;
+  emailsList: string[];
+  phonesList: string[];
+}
+
