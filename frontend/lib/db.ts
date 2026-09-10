@@ -1801,7 +1801,6 @@ export async function ensureDLTables(): Promise<void> {
         }
       }
     }
-    }
   } catch (err) {
     console.error("ensureDLTables error:", err);
   }
