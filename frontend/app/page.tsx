@@ -73,6 +73,11 @@ export default function JaitraPortal() {
   const [dropdownMap, setDropdownMap] = useState<DropdownCategoryMap>({});
   const [users, setUsers] = useState<AppUser[]>([]);
   const [dlGroups, setDlGroups] = useState<DLGroup[]>([]);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [broadcastContext, setBroadcastContext] = useState<{
+    type: "gbm" | "festival" | "cultural" | "issue" | "custom";
+    item: any;
+  } | null>(null);
 
   // User & Auth State (Defaults to null -> strict View Only for unauthenticated visitors)
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
@@ -110,7 +115,7 @@ export default function JaitraPortal() {
     }
   };
 
-  // Restore session from localStorage and sync hash from URL on mount
+  // Restore session and theme from localStorage and sync hash from URL on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
@@ -121,6 +126,10 @@ export default function JaitraPortal() {
             setCurrentUser(parsed);
           }
         }
+        const savedTheme = localStorage.getItem("jaitra_portal_theme");
+        if (savedTheme === "light" || savedTheme === "dark") {
+          setTheme(savedTheme);
+        }
       } catch (e) {}
 
       const hash = window.location.hash.replace("#", "");
@@ -130,6 +139,27 @@ export default function JaitraPortal() {
       }
     }
   }, []);
+
+  const handleToggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    try {
+      localStorage.setItem("jaitra_portal_theme", nextTheme);
+    } catch (e) {}
+    showToast(`Switched to ${nextTheme === "light" ? "White / Light Theme" : "Dark Theme"}`);
+  };
+
+  const handleTriggerBroadcast = (
+    type: "gbm" | "festival" | "cultural" | "issue" | "custom",
+    item: any
+  ) => {
+    setBroadcastContext({ type, item });
+    setActiveTab("dl-groups");
+    if (typeof window !== "undefined") {
+      window.location.hash = "dl-groups";
+      window.scrollTo({ top: 400, behavior: "smooth" });
+    }
+  };
 
   // Redirect to public tab if on a restricted tab without auth or if unauthorized role visits protected tab
   useEffect(() => {
@@ -686,13 +716,15 @@ export default function JaitraPortal() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500 selection:text-white">
+    <div className={`min-h-screen flex flex-col font-sans selection:bg-sky-500 selection:text-white transition-colors duration-300 ${theme === "light" ? "light-theme bg-slate-50 text-slate-900" : "bg-slate-950 text-slate-100"}`}>
       {/* Top Navbar */}
       <Navbar
         isBackendConnected={isBackendConnected}
         onRefresh={fetchAllData}
         isLoading={isLoading}
         currentUser={currentUser}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
         onLoginSuccess={(user) => {
           setCurrentUser(user);
           try {
@@ -757,6 +789,7 @@ export default function JaitraPortal() {
             onAddAgenda={handleAddAgenda}
             onUpdateAgenda={handleUpdateAgenda}
             onDeleteAgenda={handleDeleteAgenda}
+            onBroadcastEvent={(event) => handleTriggerBroadcast("cultural", event)}
             isLoading={isLoading}
             userRole={currentUser?.role || "User"}
             isGuest={!currentUser}
@@ -779,6 +812,7 @@ export default function JaitraPortal() {
             onUpdateExpenseStatus={handleUpdateExpenseStatus}
             onDeleteExpense={handleDeleteExpense}
             onOpenAuditReport={handleOpenAuditReport}
+            onBroadcastFestival={(fest) => handleTriggerBroadcast("festival", fest)}
             isLoading={isLoading}
             userRole={currentUser?.role || "User"}
             isGuest={!currentUser}
@@ -793,6 +827,7 @@ export default function JaitraPortal() {
             onAddMeeting={handleAddMeeting}
             onUpdateMeeting={handleUpdateMeeting}
             onDeleteMeeting={handleDeleteMeeting}
+            onBroadcastMeeting={(meeting) => handleTriggerBroadcast("gbm", meeting)}
             isLoading={isLoading}
             userRole={currentUser?.role || "User"}
             isGuest={!currentUser}
@@ -806,6 +841,7 @@ export default function JaitraPortal() {
             onAddIssue={handleAddIssue}
             onUpdateIssue={handleUpdateIssue}
             onDeleteIssue={handleDeleteIssue}
+            onBroadcastIssue={(issue) => handleTriggerBroadcast("issue", issue)}
             isLoading={isLoading}
             userRole={currentUser?.role || "User"}
             dropdownMap={dropdownMap}
@@ -878,6 +914,8 @@ export default function JaitraPortal() {
             gbmMeetings={meetings}
             festivals={festivals}
             culturalEvents={culturalEvents}
+            initialBroadcastContext={broadcastContext}
+            onClearBroadcastContext={() => setBroadcastContext(null)}
             onShowToast={showToast}
           />
         )}

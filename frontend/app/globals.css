@@ -134,3 +134,64 @@
   color: #64748b !important;
 }
 
+.light-theme tr:hover {
+  background-color: #f8fafc !important;
+}
+
+.light-theme .bg-indigo-950,
+.light-theme .bg-indigo-950\/30,
+.light-theme .bg-indigo-950\/50,
+.light-theme .bg-indigo-950\/60,
+.light-theme .bg-indigo-950\/70,
+.light-theme .bg-indigo-950\/80,
+.light-theme .bg-indigo-950\/90 {
+  background-color: #e0e7ff !important;
+  color: #3730a3 !important;
+  border-color: #c7d2fe !important;
+}
+
+.light-theme .bg-emerald-950,
+.light-theme .bg-emerald-950\/30,
+.light-theme .bg-emerald-950\/40,
+.light-theme .bg-emerald-950\/50,
+.light-theme .bg-emerald-950\/60,
+.light-theme .bg-emerald-950\/70,
+.light-theme .bg-emerald-950\/80,
+.light-theme .bg-emerald-950\/90 {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+  border-color: #a7f3d0 !important;
+}
+
+.light-theme .bg-rose-950,
+.light-theme .bg-rose-950\/20,
+.light-theme .bg-rose-950\/30,
+.light-theme .bg-rose-950\/40,
+.light-theme .bg-rose-950\/60,
+.light-theme .bg-rose-950\/80,
+.light-theme .bg-rose-950\/90 {
+  background-color: #ffe4e6 !important;
+  color: #9f1239 !important;
+  border-color: #fecdd3 !important;
+}
+
+.light-theme .bg-sky-950,
+.light-theme .bg-sky-950\/60,
+.light-theme .bg-sky-950\/80,
+.light-theme .bg-sky-950\/90 {
+  background-color: #e0f2fe !important;
+  color: #0369a1 !important;
+  border-color: #bae6fd !important;
+}
+
+.light-theme .bg-amber-950,
+.light-theme .bg-amber-950\/40,
+.light-theme .bg-amber-950\/60,
+.light-theme .bg-amber-950\/80,
+.light-theme .bg-amber-950\/90 {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+  border-color: #fde68a !important;
+}
+
+
