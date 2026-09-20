@@ -1,12 +1,33 @@
 import * as XLSX from "xlsx";
 
+function sanitizeExportData(data: any[]): any[] {
+  if (!Array.isArray(data)) return [];
+  return data.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const cleanRow: Record<string, any> = {};
+    for (const [key, val] of Object.entries(row)) {
+      if (typeof val === "string") {
+        // Check if value is a base64 data URL or byte code
+        if (val.startsWith("data:") || (val.length > 250 && !val.includes(" ") && !val.startsWith("http"))) {
+          cleanRow[key.replace(/url|link/i, "Available").replace(/_+/g, " ").trim() || "Attachment Available"] =
+            val.trim().length > 0 ? "Yes" : "No";
+          continue;
+        }
+      }
+      cleanRow[key] = val;
+    }
+    return cleanRow;
+  });
+}
+
 export function downloadExcelFile(data: any[], fileName: string, sheetName: string = "Data") {
   try {
     if (!data || data.length === 0) {
       alert("No data available to export.");
       return false;
     }
-    const ws = XLSX.utils.json_to_sheet(data);
+    const sanitized = sanitizeExportData(data);
+    const ws = XLSX.utils.json_to_sheet(sanitized);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31)); // Excel max sheet name is 31 chars
     const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
@@ -35,7 +56,8 @@ export function downloadCSVFile(data: any[], fileName: string) {
       alert("No data available to export.");
       return false;
     }
-    const ws = XLSX.utils.json_to_sheet(data);
+    const sanitized = sanitizeExportData(data);
+    const ws = XLSX.utils.json_to_sheet(sanitized);
     const csv = XLSX.utils.sheet_to_csv(ws);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);

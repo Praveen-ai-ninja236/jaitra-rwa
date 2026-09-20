@@ -619,7 +619,7 @@ export default function FestivalCelebrationsTab({
       "Payment Mode": c.payment_mode,
       "Transaction Ref / Cheque": c.transaction_ref || "-",
       "Collected Date": c.collected_date,
-      "Receipt Link": c.receipt_url || "-",
+      "Attachment Available": c.receipt_url && c.receipt_url.trim().length > 0 ? "Yes" : "No",
       "Audit Notes": c.notes || "-",
     }));
     downloadExcelFile(data, `${festName.replace(/[^a-zA-Z0-9_-]/g, "_")}_Collections`, "Collections");
