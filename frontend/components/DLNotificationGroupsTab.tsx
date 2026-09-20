@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { downloadExcelFile } from "../lib/exportUtils";
 import {
   DLGroup,
   DLGroupCreate,
@@ -62,6 +63,11 @@ interface DLNotificationGroupsTabProps {
   gbmMeetings?: GeneralBodyMeeting[];
   festivals?: FestivalCelebration[];
   culturalEvents?: CulturalEvent[];
+  initialBroadcastContext?: {
+    type: "gbm" | "festival" | "cultural" | "issue" | "custom";
+    item: any;
+  } | null;
+  onClearBroadcastContext?: () => void;
   onShowToast?: (message: string, type?: "success" | "error") => void;
 }
 
@@ -72,6 +78,8 @@ export default function DLNotificationGroupsTab({
   gbmMeetings = [],
   festivals = [],
   culturalEvents = [],
+  initialBroadcastContext = null,
+  onClearBroadcastContext,
   onShowToast,
 }: DLNotificationGroupsTabProps) {
   const canEdit = userRole === "Super Admin" || userRole === "Admin";
@@ -192,6 +200,14 @@ export default function DLNotificationGroupsTab({
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (initialBroadcastContext) {
+      handleApplyTemplate(initialBroadcastContext.type, initialBroadcastContext.item);
+      setIsBroadcastModalOpen(true);
+      if (onClearBroadcastContext) onClearBroadcastContext();
+    }
+  }, [initialBroadcastContext]);
 
   const toast = (msg: string, type: "success" | "error" = "success") => {
     if (onShowToast) onShowToast(msg, type);
@@ -609,27 +625,33 @@ export default function DLNotificationGroupsTab({
   };
 
   const handleExportDL = () => {
+    if (filteredMembers.length === 0) {
+      toast("No members found to export.", "error");
+      return;
+    }
     const dataToExport = filteredMembers.map((m) => ({
-      "Name": m.name,
+      "Resident Name": m.name,
       "Tower": m.tower,
-      "Flat_No": m.flat_no,
-      "Email": m.email,
-      "Mobile": m.phone,
-      "Status": m.status,
-      "Role": m.role_tag || "Owner",
+      "Flat No": m.flat_no,
+      "Email Address": m.email,
+      "Mobile Phone": m.phone,
+      "Current DL Status": m.status,
+      "Active in DL Groups": m.active_groups && m.active_groups.length > 0 ? m.active_groups.map((g) => g.code).join(", ") : "-",
+      "Inactive in DL Groups": m.inactive_groups && m.inactive_groups.length > 0 ? m.inactive_groups.map((g) => g.code).join(", ") : "-",
+      "Role Tag": m.role_tag || "Owner",
       "Notes": m.notes || "",
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
-    const wb = XLSX.utils.book_new();
     const sheetTitle = currentGroup ? currentGroup.group_code : "All_DL_Members";
-    XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
-    XLSX.writeFile(wb, `Jaitra_${sheetTitle}_Members.xlsx`);
+    downloadExcelFile(dataToExport, `Jaitra_${sheetTitle}_Members`, sheetTitle);
     toast(`Exported ${dataToExport.length} members to Excel!`);
   };
 
   // ----------------- QUICK TEMPLATE POPULATORS FOR BROADCAST -----------------
-  const handleApplyTemplate = (type: "gbm" | "festival" | "cultural" | "maintenance" | "emergency", item?: any) => {
+  const handleApplyTemplate = (
+    type: "gbm" | "festival" | "cultural" | "maintenance" | "emergency" | "issue" | "custom",
+    item?: any
+  ) => {
     if (type === "gbm") {
       const gbm = item || gbmMeetings[0];
       if (gbm) {
@@ -673,6 +695,19 @@ export default function DLNotificationGroupsTab({
           message_body: `Dear Residents,\n\nWe are excited to announce our upcoming cultural program: "${ce.title}"!\n\n📅 Event Date: ${ce.event_date}\n⏰ Time: ${ce.time}\n📍 Venue: ${ce.venue}\n🎭 Category: ${ce.category}\n👤 Coordinator: ${ce.coordinator} (${ce.coordinator_contact || "Staff Desk"})\n\n📝 Details:\n${ce.description || "Registrations are open for dance, singing, games and stage performances."}\n\nResidents and children wishing to perform or volunteer, please register your participation on the Jaitra Portal.\n\nWarm regards,\nCultural Committee\nJaitra Residents Welfare Association\njaitra-association-hyd@googlegroups.com`,
         });
         toast("Loaded Cultural Event template!");
+      }
+    } else if (type === "issue") {
+      const iss = item;
+      if (iss) {
+        setBroadcastForm({
+          ...broadcastForm,
+          subject: `⚠️ [MAINTENANCE ALERT] Ticket #${iss.issue_code || iss.id}: ${iss.title} (${iss.tower})`,
+          category: "Maintenance Alert",
+          targetTower: iss.tower || "All",
+          event_or_meeting_ref: `Issue Ticket #${iss.issue_code || iss.id}`,
+          message_body: `Dear ${iss.tower} Residents,\n\nPlease take note of the maintenance update regarding:\n"${iss.title}".\n\n🏢 Location: ${iss.tower} ${iss.flat_or_location || ""}\n⚠️ Priority: ${iss.priority}\n🔧 Assigned To: ${iss.assigned_to}\n\nDetails:\n${iss.description || "Under inspection by facilities team."}\n\nStatus: ${iss.status}\n\nFor queries, contact Maintenance Desk: +91 98450 00111.\n\nJaitra Residents Welfare Association\njaitra-association-hyd@googlegroups.com`,
+        });
+        toast("Loaded Tower Issue alert template!");
       }
     } else if (type === "maintenance") {
       setBroadcastForm({
@@ -1059,6 +1094,79 @@ export default function DLNotificationGroupsTab({
         </div>
       </div>
 
+      {/* ----------------- SELECTED DL GROUP ACTIVE BANNER & RENAME ACTION ----------------- */}
+      {currentGroup && (
+        <div className="bg-gradient-to-r from-sky-950 via-slate-900 to-indigo-950 border-2 border-sky-500/80 rounded-3xl p-5 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fadeIn">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-1 rounded-xl bg-sky-500 text-slate-950 font-mono font-black text-xs shadow">
+                {currentGroup.group_code}
+              </span>
+              <h2 className="text-xl sm:text-2xl font-black text-white">{currentGroup.group_name}</h2>
+              <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-xs font-bold border border-slate-700">
+                {currentGroup.category}
+              </span>
+            </div>
+            <p className="text-xs text-slate-300">
+              {currentGroup.description || "Active members list for this distribution group."}
+            </p>
+            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+              <span className="text-sky-300 font-mono font-bold flex items-center gap-1">
+                <Mail className="w-3.5 h-3.5 text-sky-400" />
+                {currentGroup.sender_email}
+              </span>
+              <span className="text-slate-500">•</span>
+              <span className="text-emerald-400 font-bold">
+                {filteredMembers.filter((m) => m.status === "Active").length} Active in this DL
+              </span>
+              <span className="text-slate-500">•</span>
+              <span className="text-slate-400">
+                {filteredMembers.length} Total members in this DL
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  setGroupToEdit(currentGroup);
+                  setIsEditGroupModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition transform active:scale-95"
+                title="Rename this DL group and edit category / sender email / description"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                <span>Rename / Edit DL</span>
+              </button>
+            )}
+
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMemberFormGroupId(currentGroup.id);
+                  setIsAddMemberModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-xs rounded-xl border border-sky-800/60 transition"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Add Member</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setSelectedGroupId(null)}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs rounded-xl border border-slate-700 transition"
+            >
+              View All Groups
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ----------------- MEMBERS TABLE & TOOLBAR ----------------- */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-2xl space-y-4">
         {/* Table Filter Toolbar */}
@@ -1198,23 +1306,24 @@ export default function DLNotificationGroupsTab({
                         filteredMembers.length > 0 &&
                         selectedMemberIds.length === filteredMembers.length
                       }
-                      className="rounded border-slate-700 text-sky-500 focus:ring-0"
+                      className="rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
                     />
                   </th>
                 )}
                 <th className="p-3 font-extrabold text-slate-200">Resident Name</th>
                 <th className="p-3 font-extrabold text-slate-200">Tower &amp; Flat</th>
-                <th className="p-3 font-extrabold text-slate-200">Email ID (DL Address)</th>
-                <th className="p-3 font-extrabold text-slate-200">Mobile Phone</th>
-                <th className="p-3 font-extrabold text-slate-200">Status (Active / Inactive)</th>
-                <th className="p-3 font-extrabold text-slate-200">Role Tag</th>
-                <th className="p-3 text-right font-extrabold text-slate-200">Direct Actions</th>
+                <th className="p-3 font-extrabold text-slate-200">Email &amp; Mobile</th>
+                <th className="p-3 font-extrabold text-emerald-300">Active in DL Groups</th>
+                <th className="p-3 font-extrabold text-rose-300">Inactive in DL Groups</th>
+                <th className="p-3 font-extrabold text-slate-200">Current DL Status</th>
+                <th className="p-3 font-extrabold text-slate-200">Role</th>
+                <th className="p-3 text-right font-extrabold text-slate-200">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-500">
+                  <td colSpan={canEdit ? 9 : 8} className="p-8 text-center text-slate-500">
                     <div className="max-w-md mx-auto space-y-2">
                       <Users className="w-8 h-8 text-slate-600 mx-auto" />
                       <p className="font-bold text-slate-400">No members match your criteria</p>
@@ -1242,7 +1351,7 @@ export default function DLNotificationGroupsTab({
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => handleSelectMember(member.id)}
-                            className="rounded border-slate-700 text-sky-500 focus:ring-0"
+                            className="rounded border-slate-700 text-sky-500 focus:ring-0 cursor-pointer"
                           />
                         </td>
                       )}
@@ -1272,36 +1381,72 @@ export default function DLNotificationGroupsTab({
                         </span>
                       </td>
 
-                      {/* Email ID */}
+                      {/* Email & Mobile */}
                       <td className="p-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-slate-300 selection:bg-sky-500">
-                            {member.email}
-                          </span>
-                          <button
-                            onClick={() => copyToClipboard(member.email, member.email)}
-                            className="p-1 hover:text-sky-300 text-slate-500 transition"
-                            title="Copy email"
-                          >
-                            <Copy className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </td>
-
-                      {/* Mobile */}
-                      <td className="p-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-slate-300">{member.phone || "—"}</span>
-                          {member.phone && (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono text-slate-300 text-[11px] selection:bg-sky-500">
+                              {member.email}
+                            </span>
                             <button
-                              onClick={() => copyToClipboard(member.phone, member.phone)}
-                              className="p-1 hover:text-emerald-300 text-slate-500 transition"
-                              title="Copy mobile number"
+                              onClick={() => copyToClipboard(member.email, member.email)}
+                              className="p-0.5 hover:text-sky-300 text-slate-500 transition"
+                              title="Copy email"
                             >
                               <Copy className="w-3 h-3" />
                             </button>
+                          </div>
+                          {member.phone && (
+                            <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
+                              <span>{member.phone}</span>
+                              <button
+                                onClick={() => copyToClipboard(member.phone, member.phone)}
+                                className="p-0.5 hover:text-emerald-300 text-slate-500 transition"
+                                title="Copy mobile"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
                           )}
                         </div>
+                      </td>
+
+                      {/* Column 1: Active in DL Groups */}
+                      <td className="p-3">
+                        {member.active_groups && member.active_groups.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 max-w-[220px]">
+                            {member.active_groups.map((g) => (
+                              <span
+                                key={g.id}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700/60 shadow-xs"
+                                title={`${g.name} (${g.code}) — Active recipient`}
+                              >
+                                ✓ {g.code}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 italic">None</span>
+                        )}
+                      </td>
+
+                      {/* Column 2: Inactive in DL Groups */}
+                      <td className="p-3">
+                        {member.inactive_groups && member.inactive_groups.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 max-w-[200px]">
+                            {member.inactive_groups.map((g) => (
+                              <span
+                                key={g.id}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-900 text-slate-400 border border-slate-700/50"
+                                title={`${g.name} (${g.code}) — Inactive (Mails skipped)`}
+                              >
+                                ✕ {g.code}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-emerald-400/70 font-semibold">Active in all</span>
+                        )}
                       </td>
 
                       {/* Status Toggle Button */}
@@ -1315,14 +1460,14 @@ export default function DLNotificationGroupsTab({
                                 ? "bg-emerald-950 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900"
                                 : "bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-900"
                             }`}
-                            title="Click to toggle Active / Inactive"
+                            title="Click to toggle Active / Inactive in this DL group"
                           >
                             <span
                               className={`w-2 h-2 rounded-full ${
                                 isActive ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
                               }`}
                             />
-                            <span>{isActive ? "Active (Receives Mails)" : "Inactive (Skipped)"}</span>
+                            <span>{isActive ? "Active (Receives)" : "Inactive (Skipped)"}</span>
                           </button>
                         ) : (
                           <span
@@ -2365,6 +2510,119 @@ export default function DLNotificationGroupsTab({
           )}
         </div>
       </Modal>
+
+      {/* ----------------- RENAME & EDIT DL GROUP MODAL ----------------- */}
+      {groupToEdit && (
+        <Modal
+          isOpen={isEditGroupModalOpen}
+          onClose={() => {
+            setIsEditGroupModalOpen(false);
+            setGroupToEdit(null);
+          }}
+          title={`Rename & Edit DL Group: ${groupToEdit.group_name}`}
+          maxWidth="md"
+        >
+          <form onSubmit={handleUpdateGroup} className="space-y-4 text-xs text-slate-200">
+            <div className="space-y-1">
+              <label className="font-bold text-slate-300">DL Group Name (Rename) *</label>
+              <input
+                type="text"
+                required
+                value={groupToEdit.group_name}
+                onChange={(e) => setGroupToEdit({ ...groupToEdit, group_name: e.target.value })}
+                placeholder="e.g. Cultural & Festival Committee DL"
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Group Code (e.g. DL-ALL)</label>
+                <input
+                  type="text"
+                  required
+                  value={groupToEdit.group_code}
+                  onChange={(e) => setGroupToEdit({ ...groupToEdit, group_code: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Category</label>
+                <select
+                  value={groupToEdit.category}
+                  onChange={(e) => setGroupToEdit({ ...groupToEdit, category: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                >
+                  <option value="All Society">All Society</option>
+                  <option value="Tower Specific">Tower Specific</option>
+                  <option value="Events & Cultural">Events &amp; Cultural</option>
+                  <option value="GBM & Governance">GBM &amp; Governance</option>
+                  <option value="Committee">Committee</option>
+                  <option value="Emergency">Emergency</option>
+                  <option value="Custom">Custom</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-bold text-slate-300">Default Sender Mail ID</label>
+              <input
+                type="email"
+                required
+                value={groupToEdit.sender_email}
+                onChange={(e) => setGroupToEdit({ ...groupToEdit, sender_email: e.target.value })}
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-sky-300 font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-bold text-slate-300">Description</label>
+              <textarea
+                rows={3}
+                value={groupToEdit.description || ""}
+                onChange={(e) => setGroupToEdit({ ...groupToEdit, description: e.target.value })}
+                placeholder="Purpose and members included in this DL group..."
+                className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+              {!groupToEdit.is_system ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDeleteGroup(groupToEdit);
+                    setIsEditGroupModalOpen(false);
+                  }}
+                  className="px-3 py-1.5 bg-rose-950/80 hover:bg-rose-900 text-rose-300 rounded-xl font-bold text-xs border border-rose-800 flex items-center gap-1 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete DL Group</span>
+                </button>
+              ) : (
+                <span className="text-[11px] text-slate-500 italic">System Default Group</span>
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditGroupModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow transition"
+                >
+                  Save Group Changes
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

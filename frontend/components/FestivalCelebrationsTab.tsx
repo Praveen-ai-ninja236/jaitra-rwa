@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import * as api from "../lib/api";
+import { downloadExcelFile } from "../lib/exportUtils";
 import {
   FestivalCelebration,
   FestivalCelebrationCreate,
@@ -111,14 +112,24 @@ export default function FestivalCelebrationsTab({
   // Excel / CSV Upload States for Collections
   const [isCollUploadOpen, setIsCollUploadOpen] = useState(false);
   const [collUploadRows, setCollUploadRows] = useState<any[]>([]);
+  const [collFailedRows, setCollFailedRows] = useState<any[]>([]);
   const [isParsingColl, setIsParsingColl] = useState(false);
+  const [isCollUploading, setIsCollUploading] = useState(false);
+  const [collProgress, setCollProgress] = useState(0);
   const [collUploadError, setCollUploadError] = useState<string | null>(null);
 
   // Excel / CSV Upload States for Expenses
   const [isExpUploadOpen, setIsExpUploadOpen] = useState(false);
   const [expUploadRows, setExpUploadRows] = useState<any[]>([]);
+  const [expFailedRows, setExpFailedRows] = useState<any[]>([]);
   const [isParsingExp, setIsParsingExp] = useState(false);
+  const [isExpUploading, setIsExpUploading] = useState(false);
+  const [expProgress, setExpProgress] = useState(0);
   const [expUploadError, setExpUploadError] = useState<string | null>(null);
+
+  // Multi-Select for Collections and Expenses
+  const [selectedCollIds, setSelectedCollIds] = useState<number[]>([]);
+  const [selectedExpIds, setSelectedExpIds] = useState<number[]>([]);
 
   // Table Filters & Sorting within Detail View
   const [collSearch, setCollSearch] = useState("");
@@ -383,16 +394,51 @@ export default function FestivalCelebrationsTab({
     }
   };
 
+  // ----------------- BULK MULTI-SELECT DELETION -----------------
+  const handleBulkDeleteCollections = async () => {
+    if (selectedCollIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedCollIds.length} selected collection records?`)) return;
+    setIsSubmitting(true);
+    try {
+      for (const id of selectedCollIds) {
+        await onDeleteCollection(id);
+      }
+      setSelectedCollIds([]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkDeleteExpenses = async () => {
+    if (selectedExpIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedExpIds.length} selected expense vouchers?`)) return;
+    setIsSubmitting(true);
+    try {
+      for (const id of selectedExpIds) {
+        await onDeleteExpense(id);
+      }
+      setSelectedExpIds([]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // ----------------- EXCEL / CSV BULK IMPORT & EXPORT FOR COLLECTIONS -----------------
   const handleCollectionsFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setCollUploadError(null);
     setIsParsingColl(true);
+    setCollProgress(20);
 
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
+        setCollProgress(50);
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: "binary" });
         const ws = wb.Sheets[wb.SheetNames[0]];
@@ -401,10 +447,14 @@ export default function FestivalCelebrationsTab({
         if (!rawData || rawData.length === 0) {
           setCollUploadError("The uploaded file contains no rows.");
           setIsParsingColl(false);
+          setCollProgress(0);
           return;
         }
 
-        const normalized = rawData.map((row: any, idx: number) => {
+        const good: any[] = [];
+        const failed: any[] = [];
+
+        rawData.forEach((row: any, idx: number) => {
           const keys = Object.keys(row);
           const findKey = (patterns: string[]) => keys.find((k) => patterns.some((p) => k.toLowerCase().replace(/[^a-z]/g, "").includes(p)));
 
@@ -422,16 +472,16 @@ export default function FestivalCelebrationsTab({
             towerVal = `Tower ${towerVal.toUpperCase()}`;
           }
           const flatVal = flatKey ? String(row[flatKey]).trim() : "101";
-          const donorVal = donorKey ? String(row[donorKey]).trim() : `Resident ${idx + 1}`;
-          const amountVal = amountKey ? parseFloat(String(row[amountKey]).replace(/[^0-9.]/g, "")) || 0 : 0;
+          const donorVal = donorKey ? String(row[donorKey]).trim() : "";
+          const rawAmt = amountKey ? String(row[amountKey]).replace(/[^0-9.]/g, "") : "0";
+          const amountVal = parseFloat(rawAmt) || 0;
           const modeVal = modeKey ? String(row[modeKey]).trim() : "UPI";
           const refVal = refKey ? String(row[refKey]).trim() : "";
           const dateVal = dateKey ? String(row[dateKey]).trim() : new Date().toISOString().split("T")[0];
           const notesVal = notesKey ? String(row[notesKey]).trim() : "Bulk Upload";
 
-          const isValid = Boolean(donorVal && amountVal > 0);
-
-          return {
+          const rec = {
+            id: idx + 1,
             tower: towerVal,
             flat_no: flatVal,
             donor_name: donorVal,
@@ -440,13 +490,24 @@ export default function FestivalCelebrationsTab({
             transaction_ref: refVal,
             collected_date: dateVal,
             notes: notesVal,
-            isValid,
           };
+
+          if (!donorVal || amountVal <= 0) {
+            let reason = "";
+            if (!donorVal) reason = "Missing donor resident name";
+            else if (amountVal <= 0) reason = "Amount must be greater than 0";
+            failed.push({ ...rec, errorReason: reason });
+          } else {
+            good.push(rec);
+          }
         });
 
-        setCollUploadRows(normalized);
+        setCollUploadRows(good);
+        setCollFailedRows(failed);
+        setCollProgress(100);
       } catch (err: any) {
         setCollUploadError(`Failed to parse file: ${err.message}`);
+        setCollProgress(0);
       } finally {
         setIsParsingColl(false);
       }
@@ -454,17 +515,56 @@ export default function FestivalCelebrationsTab({
     reader.readAsBinaryString(file);
   };
 
+  const handleFixFailedCollRow = (rowId: number, field: string, val: any) => {
+    setCollFailedRows((prev) =>
+      prev.map((r) => {
+        if (r.id === rowId) {
+          const updated = { ...r, [field]: val };
+          // Check if now valid
+          if (updated.donor_name && updated.amount > 0) {
+            updated.errorReason = "";
+          }
+          return updated;
+        }
+        return r;
+      })
+    );
+  };
+
+  const handleMoveFixedCollRowToGood = (rowId: number) => {
+    const target = collFailedRows.find((r) => r.id === rowId);
+    if (!target) return;
+    if (!target.donor_name || target.amount <= 0) {
+      alert("Please ensure both Donor Name and Amount (>0) are provided before moving to good records.");
+      return;
+    }
+    setCollFailedRows((prev) => prev.filter((r) => r.id !== rowId));
+    setCollUploadRows((prev) => [...prev, target]);
+  };
+
   const handleConfirmCollectionsImport = async () => {
     if (!activeFestivalDetail) return;
-    const validRows = collUploadRows.filter((r) => r.isValid);
-    if (validRows.length === 0) return;
+    if (collUploadRows.length === 0) {
+      alert("No valid collection records to import.");
+      return;
+    }
+    setIsCollUploading(true);
+    setCollProgress(30);
     try {
-      await api.bulkAddFestivalCollections(activeFestivalDetail.id, validRows);
-      setIsCollUploadOpen(false);
-      setCollUploadRows([]);
-      window.location.reload();
+      setCollProgress(70);
+      await api.bulkAddFestivalCollections(activeFestivalDetail.id, collUploadRows);
+      setCollProgress(100);
+      setTimeout(() => {
+        setIsCollUploadOpen(false);
+        setCollUploadRows([]);
+        setCollFailedRows([]);
+        setIsCollUploading(false);
+        setCollProgress(0);
+        window.location.reload();
+      }, 500);
     } catch (err: any) {
       setCollUploadError(err.message || "Failed to import collections");
+      setIsCollUploading(false);
     }
   };
 
@@ -501,29 +601,28 @@ export default function FestivalCelebrationsTab({
         "Notes": "Maha Prasadam Sponsor",
       },
     ];
-    const ws = XLSX.utils.json_to_sheet(sample);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Collections_Template");
-    XLSX.writeFile(wb, "Jaitra_Festival_Collections_Template.xlsx");
+    downloadExcelFile(sample, "Jaitra_Festival_Collections_Template", "Collections_Template");
   };
 
-  const handleExportCollections = () => {
-    if (!activeFestivalDetail) return;
-    const data = filteredCollections.map((c) => ({
+  const handleExportCollections = (subset?: FestivalCollection[]) => {
+    const target = subset && subset.length > 0 ? subset : filteredCollections;
+    if (target.length === 0) {
+      alert("No collection records to export.");
+      return;
+    }
+    const festName = activeFestivalDetail ? activeFestivalDetail.festival_name : "Festival";
+    const data = target.map((c) => ({
       "Tower": c.tower,
       "Flat No": c.flat_no,
-      "Donor Name": c.donor_name,
-      "Amount (₹)": c.amount,
+      "Donor Resident Name": c.donor_name,
+      "Contribution Amount (₹)": c.amount,
       "Payment Mode": c.payment_mode,
-      "Transaction Ref": c.transaction_ref || "",
+      "Transaction Ref / Cheque": c.transaction_ref || "-",
       "Collected Date": c.collected_date,
-      "Receipt Link": c.receipt_url || "",
-      "Notes": c.notes || "",
+      "Receipt Link": c.receipt_url || "-",
+      "Audit Notes": c.notes || "-",
     }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Collections");
-    XLSX.writeFile(wb, `${activeFestivalDetail.festival_name}_Collections.xlsx`);
+    downloadExcelFile(data, `${festName.replace(/[^a-zA-Z0-9_-]/g, "_")}_Collections`, "Collections");
   };
 
   // ----------------- EXCEL / CSV BULK IMPORT & EXPORT FOR EXPENSES -----------------
@@ -532,10 +631,12 @@ export default function FestivalCelebrationsTab({
     if (!file) return;
     setExpUploadError(null);
     setIsParsingExp(true);
+    setExpProgress(20);
 
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
+        setExpProgress(50);
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: "binary" });
         const ws = wb.Sheets[wb.SheetNames[0]];
@@ -544,10 +645,14 @@ export default function FestivalCelebrationsTab({
         if (!rawData || rawData.length === 0) {
           setExpUploadError("The uploaded file contains no rows.");
           setIsParsingExp(false);
+          setExpProgress(0);
           return;
         }
 
-        const normalized = rawData.map((row: any, idx: number) => {
+        const good: any[] = [];
+        const failed: any[] = [];
+
+        rawData.forEach((row: any, idx: number) => {
           const keys = Object.keys(row);
           const findKey = (patterns: string[]) => keys.find((k) => patterns.some((p) => k.toLowerCase().replace(/[^a-z]/g, "").includes(p)));
 
@@ -559,17 +664,17 @@ export default function FestivalCelebrationsTab({
           const dateKey = findKey(["billdate", "date", "invoicedate"]);
           const approverKey = findKey(["designatedapprover", "approver", "approvedby", "approvername"]);
 
-          const titleVal = titleKey ? String(row[titleKey]).trim() : `Expense Item ${idx + 1}`;
-          const catVal = catKey ? String(row[catKey]).trim() : "General";
-          const amountVal = amountKey ? parseFloat(String(row[amountKey]).replace(/[^0-9.]/g, "")) || 0 : 0;
+          const titleVal = titleKey ? String(row[titleKey]).trim() : "";
+          const catVal = catKey ? String(row[catKey]).trim() : "Decor";
+          const rawAmt = amountKey ? String(row[amountKey]).replace(/[^0-9.]/g, "") : "0";
+          const amountVal = parseFloat(rawAmt) || 0;
           const vendorVal = vendorKey ? String(row[vendorKey]).trim() : "";
           const modeVal = modeKey ? String(row[modeKey]).trim() : "UPI";
           const dateVal = dateKey ? String(row[dateKey]).trim() : new Date().toISOString().split("T")[0];
           const approverVal = approverKey ? String(row[approverKey]).trim() : "Treasurer";
 
-          const isValid = Boolean(titleVal && amountVal > 0);
-
-          return {
+          const rec = {
+            id: idx + 1,
             title: titleVal,
             category: catVal,
             amount: amountVal,
@@ -580,13 +685,24 @@ export default function FestivalCelebrationsTab({
             approver_role: "Treasurer",
             approval_status: "Approved",
             audit_evidence_notes: "Bulk Uploaded via Excel",
-            isValid,
           };
+
+          if (!titleVal || amountVal <= 0) {
+            let reason = "";
+            if (!titleVal) reason = "Missing expense item title";
+            else if (amountVal <= 0) reason = "Amount must be greater than 0";
+            failed.push({ ...rec, errorReason: reason });
+          } else {
+            good.push(rec);
+          }
         });
 
-        setExpUploadRows(normalized);
+        setExpUploadRows(good);
+        setExpFailedRows(failed);
+        setExpProgress(100);
       } catch (err: any) {
         setExpUploadError(`Failed to parse file: ${err.message}`);
+        setExpProgress(0);
       } finally {
         setIsParsingExp(false);
       }
@@ -594,17 +710,55 @@ export default function FestivalCelebrationsTab({
     reader.readAsBinaryString(file);
   };
 
+  const handleFixFailedExpRow = (rowId: number, field: string, val: any) => {
+    setExpFailedRows((prev) =>
+      prev.map((r) => {
+        if (r.id === rowId) {
+          const updated = { ...r, [field]: val };
+          if (updated.title && updated.amount > 0) {
+            updated.errorReason = "";
+          }
+          return updated;
+        }
+        return r;
+      })
+    );
+  };
+
+  const handleMoveFixedExpRowToGood = (rowId: number) => {
+    const target = expFailedRows.find((r) => r.id === rowId);
+    if (!target) return;
+    if (!target.title || target.amount <= 0) {
+      alert("Please ensure both Expense Title and Amount (>0) are provided before moving to good records.");
+      return;
+    }
+    setExpFailedRows((prev) => prev.filter((r) => r.id !== rowId));
+    setExpUploadRows((prev) => [...prev, target]);
+  };
+
   const handleConfirmExpensesImport = async () => {
     if (!activeFestivalDetail) return;
-    const validRows = expUploadRows.filter((r) => r.isValid);
-    if (validRows.length === 0) return;
+    if (expUploadRows.length === 0) {
+      alert("No valid expense vouchers to import.");
+      return;
+    }
+    setIsExpUploading(true);
+    setExpProgress(30);
     try {
-      await api.bulkAddFestivalExpenses(activeFestivalDetail.id, validRows);
-      setIsExpUploadOpen(false);
-      setExpUploadRows([]);
-      window.location.reload();
+      setExpProgress(70);
+      await api.bulkAddFestivalExpenses(activeFestivalDetail.id, expUploadRows);
+      setExpProgress(100);
+      setTimeout(() => {
+        setIsExpUploadOpen(false);
+        setExpUploadRows([]);
+        setExpFailedRows([]);
+        setIsExpUploading(false);
+        setExpProgress(0);
+        window.location.reload();
+      }, 500);
     } catch (err: any) {
       setExpUploadError(err.message || "Failed to import expenses");
+      setIsExpUploading(false);
     }
   };
 
@@ -638,30 +792,28 @@ export default function FestivalCelebrationsTab({
         "Designated Approver": "Vikram Patel",
       },
     ];
-    const ws = XLSX.utils.json_to_sheet(sample);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Expenses_Template");
-    XLSX.writeFile(wb, "Jaitra_Festival_Expenses_Template.xlsx");
+    downloadExcelFile(sample, "Jaitra_Festival_Expenses_Template", "Expenses_Template");
   };
 
-  const handleExportExpenses = () => {
-    if (!activeFestivalDetail) return;
-    const data = filteredExpenses.map((e) => ({
-      "Expense Title / Item": e.title,
-      "Category": e.category,
-      "Amount (₹)": e.amount,
-      "Vendor / Contractor": e.vendor_name || "",
+  const handleExportExpenses = (subset?: FestivalExpense[]) => {
+    const target = subset && subset.length > 0 ? subset : filteredExpenses;
+    if (target.length === 0) {
+      alert("No expense records to export.");
+      return;
+    }
+    const festName = activeFestivalDetail ? activeFestivalDetail.festival_name : "Festival";
+    const data = target.map((e) => ({
+      "Expense Title / Item *": e.title,
+      "Category *": e.category,
+      "Amount (₹) *": e.amount,
+      "Vendor / Contractor": e.vendor_name || "-",
       "Payment Mode": e.payment_mode || "UPI",
       "Bill Date": e.bill_date,
       "Designated Approver": e.approver_name,
       "Approval Status": e.approval_status,
-      "Audit Invoice URL": e.invoice_url || "",
-      "Audit Notes": e.audit_evidence_notes || "",
+      "Audit Notes": e.audit_evidence_notes || "-",
     }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Expenses");
-    XLSX.writeFile(wb, `${activeFestivalDetail.festival_name}_Expenses_Audit.xlsx`);
+    downloadExcelFile(data, `${festName.replace(/[^a-zA-Z0-9_-]/g, "_")}_Expenses_Audit`, "Expenses");
   };
 
   return (
@@ -1176,21 +1328,69 @@ export default function FestivalCelebrationsTab({
 
                     <button
                       type="button"
-                      onClick={handleExportCollections}
+                      onClick={() => handleExportCollections()}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 font-bold transition shadow-xs"
                       title="Export all collections for this festival to Excel"
                     >
                       <Download className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Export</span>
+                      <span>Export All</span>
                     </button>
                   </div>
                 </div>
+
+                {/* Multi-Select Collections Toolbar */}
+                {selectedCollIds.length > 0 && canEdit && (
+                  <div className="flex items-center justify-between p-2.5 bg-emerald-950/70 border border-emerald-700/60 rounded-xl animate-fadeIn text-xs">
+                    <span className="font-bold text-emerald-200">
+                      {selectedCollIds.length} collection record(s) selected
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleBulkDeleteCollections}
+                        className="flex items-center gap-1 px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg transition shadow"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Selected ({selectedCollIds.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleExportCollections(
+                            filteredCollections.filter((c) => selectedCollIds.includes(c.id))
+                          )
+                        }
+                        className="flex items-center gap-1 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg border border-slate-700 transition"
+                      >
+                        <Download className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Export Selected</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Collections Table */}
                 <div className="overflow-x-auto max-h-60 overflow-y-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-800 text-slate-400 uppercase font-bold sticky top-0">
                       <tr>
+                        {canEdit && (
+                          <th className="p-2.5 w-8 text-center">
+                            <input
+                              type="checkbox"
+                              checked={
+                                filteredCollections.length > 0 &&
+                                selectedCollIds.length === filteredCollections.length
+                              }
+                              onChange={(e) => {
+                                if (e.target.checked)
+                                  setSelectedCollIds(filteredCollections.map((c) => c.id));
+                                else setSelectedCollIds([]);
+                              }}
+                              className="rounded border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                            />
+                          </th>
+                        )}
                         <th className="p-2.5">Tower &amp; Flat</th>
                         <th className="p-2.5">Donor</th>
                         <th
@@ -1222,13 +1422,29 @@ export default function FestivalCelebrationsTab({
                     <tbody className="divide-y divide-slate-800 text-slate-300">
                       {filteredCollections.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="p-4 text-center text-slate-500 italic">
+                          <td colSpan={canEdit ? 7 : 6} className="p-4 text-center text-slate-500 italic">
                             No collections match filter criteria.
                           </td>
                         </tr>
                       ) : (
                         filteredCollections.map((col) => (
                           <tr key={col.id} className="hover:bg-slate-800/40">
+                            {canEdit && (
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedCollIds.includes(col.id)}
+                                  onChange={() => {
+                                    if (selectedCollIds.includes(col.id))
+                                      setSelectedCollIds(
+                                        selectedCollIds.filter((id) => id !== col.id)
+                                      );
+                                    else setSelectedCollIds([...selectedCollIds, col.id]);
+                                  }}
+                                  className="rounded border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                                />
+                              </td>
+                            )}
                             <td className="p-2.5 font-bold text-white">
                               {col.tower} - {col.flat_no}
                             </td>
@@ -1467,15 +1683,46 @@ export default function FestivalCelebrationsTab({
 
                     <button
                       type="button"
-                      onClick={handleExportExpenses}
+                      onClick={() => handleExportExpenses()}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 font-bold transition shadow-xs"
                       title="Export all expenses for this festival to Excel"
                     >
                       <Download className="w-3.5 h-3.5 text-rose-400" />
-                      <span>Export</span>
+                      <span>Export All</span>
                     </button>
                   </div>
                 </div>
+
+                {/* Multi-Select Expenses Toolbar */}
+                {selectedExpIds.length > 0 && canEdit && (
+                  <div className="flex items-center justify-between p-2.5 bg-rose-950/70 border border-rose-700/60 rounded-xl animate-fadeIn text-xs">
+                    <span className="font-bold text-rose-200">
+                      {selectedExpIds.length} expense voucher(s) selected
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleBulkDeleteExpenses}
+                        className="flex items-center gap-1 px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg transition shadow"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Selected ({selectedExpIds.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleExportExpenses(
+                            filteredExpenses.filter((e) => selectedExpIds.includes(e.id))
+                          )
+                        }
+                        className="flex items-center gap-1 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg border border-slate-700 transition"
+                      >
+                        <Download className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Export Selected</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Expenses List */}
                 <div className="space-y-2.5 max-h-64 overflow-y-auto">
@@ -1487,9 +1734,23 @@ export default function FestivalCelebrationsTab({
                         key={exp.id}
                         className="p-3 bg-slate-800/80 rounded-xl border border-slate-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs"
                       >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white">{exp.title}</span>
+                        <div className="flex items-start gap-2.5">
+                          {canEdit && (
+                            <input
+                              type="checkbox"
+                              checked={selectedExpIds.includes(exp.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                if (selectedExpIds.includes(exp.id))
+                                  setSelectedExpIds(selectedExpIds.filter((id) => id !== exp.id));
+                                else setSelectedExpIds([...selectedExpIds, exp.id]);
+                              }}
+                              className="rounded border-slate-700 text-rose-500 focus:ring-0 cursor-pointer mt-0.5"
+                            />
+                          )}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white">{exp.title}</span>
                             <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded font-semibold">
                               {exp.category}
                             </span>
@@ -1541,8 +1802,9 @@ export default function FestivalCelebrationsTab({
                             )}
                           </div>
                         </div>
+                      </div>
 
-                        <div className="flex items-center gap-2.5 self-end sm:self-center">
+                      <div className="flex items-center gap-2.5 self-end sm:self-center">
                           {exp.invoice_url && (
                             <button
                               type="button"
@@ -2080,7 +2342,9 @@ export default function FestivalCelebrationsTab({
       {/* ----------------- COLLECTIONS BULK UPLOAD MODAL ----------------- */}
       <Modal
         isOpen={isCollUploadOpen}
-        onClose={() => setIsCollUploadOpen(false)}
+        onClose={() => {
+          if (!isCollUploading) setIsCollUploadOpen(false);
+        }}
         title={`Upload Collections via Excel / CSV: ${activeFestivalDetail?.festival_name || ""}`}
         maxWidth="xl"
       >
@@ -2094,18 +2358,43 @@ export default function FestivalCelebrationsTab({
             </div>
             <button
               type="button"
+              disabled={isCollUploading}
               onClick={handleDownloadSampleCollectionsTemplate}
-              className="px-3.5 py-2 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl border border-emerald-800/80 flex items-center gap-1.5 shadow shrink-0"
+              className="px-3.5 py-2 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl border border-emerald-800/80 flex items-center gap-1.5 shadow shrink-0 disabled:opacity-50"
             >
               <Download className="w-4 h-4" />
               <span>Download Template (.xlsx)</span>
             </button>
           </div>
 
-          <div className="border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-6 text-center bg-slate-950/60 transition cursor-pointer">
+          {/* Progress Bar & Lock Action Indicator */}
+          {isCollUploading && (
+            <div className="p-3.5 bg-emerald-950/80 border border-emerald-700/80 rounded-2xl space-y-2 animate-fadeIn">
+              <div className="flex items-center justify-between text-xs font-bold text-emerald-300">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  Uploading and recording collections in live database... (Actions locked)
+                </span>
+                <span className="font-mono font-black">{collProgress}%</span>
+              </div>
+              <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-emerald-800">
+                <div
+                  className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-300"
+                  style={{ width: `${collProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div
+            className={`border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-6 text-center bg-slate-950/60 transition cursor-pointer ${
+              isCollUploading ? "opacity-50 pointer-events-none" : ""
+            }`}
+          >
             <input
               type="file"
               accept=".xlsx, .xls, .csv"
+              disabled={isCollUploading}
               onChange={handleCollectionsFileUpload}
               className="hidden"
               id="coll-file-upload"
@@ -2126,19 +2415,101 @@ export default function FestivalCelebrationsTab({
             </div>
           )}
 
+          {/* Failed Records Section with Interactive In-line Correction */}
+          {collFailedRows.length > 0 && (
+            <div className="space-y-2 p-3.5 bg-rose-950/40 border border-rose-800/80 rounded-2xl animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <span className="text-xs font-black text-rose-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  {collFailedRows.length} record(s) failed validation — review and correct below:
+                </span>
+                <span className="text-[11px] text-slate-400">Fix name/amount and click &quot;Validate &amp; Add&quot;</span>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-rose-900/60 bg-slate-950">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-rose-950/60 text-rose-300 font-bold border-b border-rose-900/50 sticky top-0">
+                    <tr>
+                      <th className="p-2">Donor Name *</th>
+                      <th className="p-2">Tower &amp; Flat</th>
+                      <th className="p-2">Amount (₹) *</th>
+                      <th className="p-2">Error Reason</th>
+                      <th className="p-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rose-900/30">
+                    {collFailedRows.map((r) => (
+                      <tr key={r.id} className="hover:bg-rose-950/30">
+                        <td className="p-1.5">
+                          <input
+                            type="text"
+                            value={r.donor_name}
+                            onChange={(e) => handleFixFailedCollRow(r.id, "donor_name", e.target.value)}
+                            placeholder="Enter Donor Name"
+                            className="w-full p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs font-bold"
+                          />
+                        </td>
+                        <td className="p-1.5">
+                          <div className="flex gap-1">
+                            <input
+                              type="text"
+                              value={r.tower}
+                              onChange={(e) => handleFixFailedCollRow(r.id, "tower", e.target.value)}
+                              placeholder="Tower"
+                              className="w-16 p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs"
+                            />
+                            <input
+                              type="text"
+                              value={r.flat_no}
+                              onChange={(e) => handleFixFailedCollRow(r.id, "flat_no", e.target.value)}
+                              placeholder="Flat"
+                              className="w-14 p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs"
+                            />
+                          </div>
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="number"
+                            value={r.amount || ""}
+                            onChange={(e) => handleFixFailedCollRow(r.id, "amount", parseFloat(e.target.value) || 0)}
+                            placeholder="Amount"
+                            className="w-24 p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs font-mono font-bold"
+                          />
+                        </td>
+                        <td className="p-1.5 text-rose-400 font-mono text-[10px]">{r.errorReason}</td>
+                        <td className="p-1.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveFixedCollRowToGood(r.id)}
+                            className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-bold shadow transition"
+                          >
+                            ✓ Validate &amp; Add
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Valid Good Records Table */}
           {collUploadRows.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-emerald-400">
-                  ✓ Found {collUploadRows.filter((r) => r.isValid).length} valid donor contribution records
+                  ✓ {collUploadRows.length} valid donor contribution records ready to import
                 </span>
-                <span className="text-slate-400">Total rows: {collUploadRows.length}</span>
+                <span className="text-slate-400 font-mono text-[11px]">
+                  Total sum: ₹ {collUploadRows.reduce((sum, r) => sum + (r.amount || 0), 0).toLocaleString("en-IN")}
+                </span>
               </div>
 
-              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
+              <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
                 <table className="w-full text-left text-[11px]">
-                  <thead>
-                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                  <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 sticky top-0">
+                    <tr>
                       <th className="p-2">Tower &amp; Flat</th>
                       <th className="p-2">Donor Name</th>
                       <th className="p-2">Amount (₹)</th>
@@ -2148,7 +2519,7 @@ export default function FestivalCelebrationsTab({
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {collUploadRows.slice(0, 15).map((row, idx) => (
-                      <tr key={idx} className={row.isValid ? "" : "bg-rose-950/20 text-rose-300"}>
+                      <tr key={idx}>
                         <td className="p-2 font-mono">{row.tower} - {row.flat_no}</td>
                         <td className="p-2 font-bold">{row.donor_name}</td>
                         <td className="p-2 font-mono text-emerald-400 font-bold">₹ {Number(row.amount).toLocaleString("en-IN")}</td>
@@ -2165,18 +2536,24 @@ export default function FestivalCelebrationsTab({
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
             <button
               type="button"
+              disabled={isCollUploading}
               onClick={() => setIsCollUploadOpen(false)}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="button"
-              disabled={collUploadRows.length === 0}
+              disabled={collUploadRows.length === 0 || isCollUploading}
               onClick={handleConfirmCollectionsImport}
-              className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs rounded-xl shadow disabled:opacity-50"
+              className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs rounded-xl shadow disabled:opacity-50 flex items-center gap-1.5"
             >
-              Import {collUploadRows.filter((r) => r.isValid).length} Collections to Live Database
+              {isCollUploading && <Upload className="w-3.5 h-3.5 animate-bounce" />}
+              <span>
+                {isCollUploading
+                  ? "Importing... Action Locked"
+                  : `Import ${collUploadRows.length} Collections to Live Database`}
+              </span>
             </button>
           </div>
         </div>
@@ -2185,7 +2562,9 @@ export default function FestivalCelebrationsTab({
       {/* ----------------- EXPENSES BULK UPLOAD MODAL ----------------- */}
       <Modal
         isOpen={isExpUploadOpen}
-        onClose={() => setIsExpUploadOpen(false)}
+        onClose={() => {
+          if (!isExpUploading) setIsExpUploadOpen(false);
+        }}
         title={`Upload Expenses Audit Vouchers: ${activeFestivalDetail?.festival_name || ""}`}
         maxWidth="xl"
       >
@@ -2199,18 +2578,43 @@ export default function FestivalCelebrationsTab({
             </div>
             <button
               type="button"
+              disabled={isExpUploading}
               onClick={handleDownloadSampleExpensesTemplate}
-              className="px-3.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold rounded-xl border border-rose-800/80 flex items-center gap-1.5 shadow shrink-0"
+              className="px-3.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold rounded-xl border border-rose-800/80 flex items-center gap-1.5 shadow shrink-0 disabled:opacity-50"
             >
               <Download className="w-4 h-4" />
               <span>Download Template (.xlsx)</span>
             </button>
           </div>
 
-          <div className="border-2 border-dashed border-slate-700 hover:border-rose-500 rounded-2xl p-6 text-center bg-slate-950/60 transition cursor-pointer">
+          {/* Progress Bar & Lock Action Indicator */}
+          {isExpUploading && (
+            <div className="p-3.5 bg-rose-950/80 border border-rose-700/80 rounded-2xl space-y-2 animate-fadeIn">
+              <div className="flex items-center justify-between text-xs font-bold text-rose-300">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
+                  Uploading and recording expenses in live database... (Actions locked)
+                </span>
+                <span className="font-mono font-black">{expProgress}%</span>
+              </div>
+              <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-rose-800">
+                <div
+                  className="bg-gradient-to-r from-rose-500 to-red-400 h-full rounded-full transition-all duration-300"
+                  style={{ width: `${expProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div
+            className={`border-2 border-dashed border-slate-700 hover:border-rose-500 rounded-2xl p-6 text-center bg-slate-950/60 transition cursor-pointer ${
+              isExpUploading ? "opacity-50 pointer-events-none" : ""
+            }`}
+          >
             <input
               type="file"
               accept=".xlsx, .xls, .csv"
+              disabled={isExpUploading}
               onChange={handleExpensesFileUpload}
               className="hidden"
               id="exp-file-upload"
@@ -2231,19 +2635,104 @@ export default function FestivalCelebrationsTab({
             </div>
           )}
 
+          {/* Failed Records Section with Interactive In-line Correction */}
+          {expFailedRows.length > 0 && (
+            <div className="space-y-2 p-3.5 bg-rose-950/40 border border-rose-800/80 rounded-2xl animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <span className="text-xs font-black text-rose-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  {expFailedRows.length} record(s) failed validation — review and correct below:
+                </span>
+                <span className="text-[11px] text-slate-400">Fix item title/amount and click &quot;Validate &amp; Add&quot;</span>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-rose-900/60 bg-slate-950">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-rose-950/60 text-rose-300 font-bold border-b border-rose-900/50 sticky top-0">
+                    <tr>
+                      <th className="p-2">Expense Item Title *</th>
+                      <th className="p-2">Category</th>
+                      <th className="p-2">Amount (₹) *</th>
+                      <th className="p-2">Vendor</th>
+                      <th className="p-2">Error Reason</th>
+                      <th className="p-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rose-900/30">
+                    {expFailedRows.map((r) => (
+                      <tr key={r.id} className="hover:bg-rose-950/30">
+                        <td className="p-1.5">
+                          <input
+                            type="text"
+                            value={r.title}
+                            onChange={(e) => handleFixFailedExpRow(r.id, "title", e.target.value)}
+                            placeholder="Enter Expense Title"
+                            className="w-full p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs font-bold"
+                          />
+                        </td>
+                        <td className="p-1.5">
+                          <select
+                            value={r.category}
+                            onChange={(e) => handleFixFailedExpRow(r.id, "category", e.target.value)}
+                            className="p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs"
+                          >
+                            {defaultExpenseCategories.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="number"
+                            value={r.amount || ""}
+                            onChange={(e) => handleFixFailedExpRow(r.id, "amount", parseFloat(e.target.value) || 0)}
+                            placeholder="Amount"
+                            className="w-24 p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs font-mono font-bold"
+                          />
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="text"
+                            value={r.vendor_name}
+                            onChange={(e) => handleFixFailedExpRow(r.id, "vendor_name", e.target.value)}
+                            placeholder="Vendor"
+                            className="w-28 p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs"
+                          />
+                        </td>
+                        <td className="p-1.5 text-rose-400 font-mono text-[10px]">{r.errorReason}</td>
+                        <td className="p-1.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveFixedExpRowToGood(r.id)}
+                            className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white rounded text-[10px] font-bold shadow transition"
+                          >
+                            ✓ Validate &amp; Add
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Valid Good Records Table */}
           {expUploadRows.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-rose-400">
-                  ✓ Found {expUploadRows.filter((r) => r.isValid).length} valid expense vouchers
+                  ✓ {expUploadRows.length} valid expense vouchers ready to import
                 </span>
-                <span className="text-slate-400">Total rows: {expUploadRows.length}</span>
+                <span className="text-slate-400 font-mono text-[11px]">
+                  Total sum: ₹ {expUploadRows.reduce((sum, r) => sum + (r.amount || 0), 0).toLocaleString("en-IN")}
+                </span>
               </div>
 
-              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
+              <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
                 <table className="w-full text-left text-[11px]">
-                  <thead>
-                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                  <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 sticky top-0">
+                    <tr>
                       <th className="p-2">Expense Title / Item</th>
                       <th className="p-2">Category</th>
                       <th className="p-2">Amount (₹)</th>
@@ -2254,7 +2743,7 @@ export default function FestivalCelebrationsTab({
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {expUploadRows.slice(0, 15).map((row, idx) => (
-                      <tr key={idx} className={row.isValid ? "" : "bg-rose-950/20 text-rose-300"}>
+                      <tr key={idx}>
                         <td className="p-2 font-bold">{row.title}</td>
                         <td className="p-2">{row.category}</td>
                         <td className="p-2 font-mono text-rose-400 font-bold">₹ {Number(row.amount).toLocaleString("en-IN")}</td>
@@ -2272,18 +2761,24 @@ export default function FestivalCelebrationsTab({
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
             <button
               type="button"
+              disabled={isExpUploading}
               onClick={() => setIsExpUploadOpen(false)}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="button"
-              disabled={expUploadRows.length === 0}
+              disabled={expUploadRows.length === 0 || isExpUploading}
               onClick={handleConfirmExpensesImport}
-              className="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-xs rounded-xl shadow disabled:opacity-50"
+              className="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-xs rounded-xl shadow disabled:opacity-50 flex items-center gap-1.5"
             >
-              Import {expUploadRows.filter((r) => r.isValid).length} Expenses to Audit Roster
+              {isExpUploading && <Upload className="w-3.5 h-3.5 animate-bounce" />}
+              <span>
+                {isExpUploading
+                  ? "Importing... Action Locked"
+                  : `Import ${expUploadRows.length} Expenses to Audit Roster`}
+              </span>
             </button>
           </div>
         </div>
