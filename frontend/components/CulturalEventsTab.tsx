@@ -36,6 +36,8 @@ import {
   UserPlus,
   ChevronRight,
   Edit,
+  Send,
+  Mail,
 } from "lucide-react";
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
@@ -51,6 +53,7 @@ interface CulturalEventsTabProps {
   onAddAgenda: (eventId: number, agenda: CulturalAgendaCreate) => Promise<void>;
   onUpdateAgenda: (agendaId: number, agenda: Partial<CulturalAgendaCreate>) => Promise<void>;
   onDeleteAgenda: (agendaId: number) => Promise<void>;
+  onBroadcastEvent?: (event: CulturalEvent) => void;
   isLoading: boolean;
   userRole?: UserRole;
   isGuest?: boolean;
@@ -69,6 +72,7 @@ export default function CulturalEventsTab({
   onAddAgenda,
   onUpdateAgenda,
   onDeleteAgenda,
+  onBroadcastEvent,
   isLoading,
   userRole = "Super Admin",
   isGuest = false,
@@ -292,15 +296,28 @@ export default function CulturalEventsTab({
           </p>
         </div>
 
-        {canEdit && (
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-500/20 transition transform active:scale-95 hover:scale-[1.02]"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Schedule New Event</span>
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onBroadcastEvent && events.length > 0 && (
+            <button
+              onClick={() => onBroadcastEvent(events[0])}
+              className="inline-flex items-center gap-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs sm:text-sm font-extrabold px-3.5 sm:px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-600/20 border border-indigo-400/40 transition transform active:scale-95"
+              title="Broadcast Cultural Event Notice to DL Groups"
+            >
+              <Send className="w-4 h-4" />
+              <span>Broadcast to DL</span>
+            </button>
+          )}
+
+          {canEdit && (
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-500/20 transition transform active:scale-95 hover:scale-[1.02]"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Schedule New Event</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -396,6 +413,20 @@ export default function CulturalEventsTab({
 
                       {canEdit && (
                         <>
+                          {onBroadcastEvent && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onBroadcastEvent(event);
+                              }}
+                              title="Broadcast Event to DL Groups"
+                              className="text-emerald-400 hover:text-white p-1.5 bg-emerald-950/80 hover:bg-emerald-900 rounded-lg border border-emerald-800/80 transition flex items-center gap-1 text-[11px] font-bold"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Send to DL</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={(e) => {
                               e.stopPropagation();

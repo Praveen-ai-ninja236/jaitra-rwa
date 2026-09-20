@@ -204,6 +204,16 @@ export async function addFestivalCollection(
   });
 }
 
+export async function bulkAddFestivalCollections(
+  festivalId: number,
+  collections: FestivalCollectionCreate[]
+): Promise<{ count: number; collections: FestivalCollection[] }> {
+  return fetchJSON<{ count: number; collections: FestivalCollection[] }>(`/api/festivals/${festivalId}/collections`, {
+    method: "POST",
+    body: JSON.stringify({ collections }),
+  });
+}
+
 export async function updateFestivalCollection(
   collectionId: number,
   data: Partial<FestivalCollectionCreate>
@@ -227,6 +237,16 @@ export async function addFestivalExpense(
   return fetchJSON<FestivalExpense>(`/api/festivals/${festivalId}/expenses`, {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function bulkAddFestivalExpenses(
+  festivalId: number,
+  expenses: FestivalExpenseCreate[]
+): Promise<{ count: number; expenses: FestivalExpense[] }> {
+  return fetchJSON<{ count: number; expenses: FestivalExpense[] }>(`/api/festivals/${festivalId}/expenses`, {
+    method: "POST",
+    body: JSON.stringify({ expenses }),
   });
 }
 

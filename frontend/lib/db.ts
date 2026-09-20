@@ -338,6 +338,40 @@ export async function deleteFestivalCollection(collectionId: number): Promise<vo
   }
 }
 
+export async function bulkAddFestivalCollections(festivalId: number, items: FestivalCollectionCreate[]): Promise<FestivalCollection[]> {
+  const inserted: FestivalCollection[] = [];
+  for (const data of items) {
+    if (!data.donor_name || !data.amount) continue;
+    const res = await runQuery(
+      `INSERT INTO festival_collections (festival_id, tower, flat_no, donor_name, amount, payment_mode, transaction_ref, collected_date, receipt_url, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
+      [
+        festivalId,
+        data.tower || "Tower A",
+        data.flat_no || "",
+        data.donor_name.trim(),
+        data.amount,
+        data.payment_mode || "UPI",
+        data.transaction_ref || "",
+        data.collected_date || new Date().toISOString().split("T")[0],
+        data.receipt_url || "",
+        data.notes || "Imported via Excel/CSV",
+      ]
+    );
+    if (res[0]) inserted.push(res[0]);
+  }
+
+  const total = await runQuery(
+    "SELECT COALESCE(SUM(amount), 0) as total FROM festival_collections WHERE festival_id = $1",
+    [festivalId]
+  );
+  const formattedFunds = `₹ ${Number(total[0]?.total || 0).toLocaleString("en-IN")}`;
+  await runQuery("UPDATE festival_celebrations SET collected_funds = $1 WHERE id = $2", [formattedFunds, festivalId]);
+
+  return inserted;
+}
+
 // Festival Expenses
 export async function addFestivalExpense(festivalId: number, data: FestivalExpenseCreate): Promise<FestivalExpense> {
   const res = await runQuery(
@@ -405,6 +439,35 @@ export async function updateFestivalExpenseStatus(expenseId: number, approvalSta
 
 export async function deleteFestivalExpense(expenseId: number): Promise<void> {
   await runQuery("DELETE FROM festival_expenses WHERE id = $1", [expenseId]);
+}
+
+export async function bulkAddFestivalExpenses(festivalId: number, items: FestivalExpenseCreate[]): Promise<FestivalExpense[]> {
+  const inserted: FestivalExpense[] = [];
+  for (const data of items) {
+    if (!data.title || !data.amount) continue;
+    const res = await runQuery(
+      `INSERT INTO festival_expenses (festival_id, title, category, amount, vendor_name, bill_date, invoice_url, audit_evidence_notes, approver_name, approver_role, approval_status, payment_mode, transaction_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING *`,
+      [
+        festivalId,
+        data.title.trim(),
+        data.category || "General",
+        data.amount,
+        data.vendor_name || "",
+        data.bill_date || new Date().toISOString().split("T")[0],
+        data.invoice_url || "",
+        data.audit_evidence_notes || "Imported via Excel/CSV",
+        data.approver_name || "Treasurer",
+        data.approver_role || "Treasurer",
+        data.approval_status || "Approved",
+        data.payment_mode || "UPI",
+        data.transaction_ref || "",
+      ]
+    );
+    if (res[0]) inserted.push(res[0]);
+  }
+  return inserted;
 }
 
 // ----------------- CULTURAL EVENTS -----------------

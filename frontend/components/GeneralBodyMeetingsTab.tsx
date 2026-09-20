@@ -23,6 +23,8 @@ import {
   Edit,
   Paperclip,
   Eye,
+  Send,
+  Mail,
 } from "lucide-react";
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
@@ -34,6 +36,7 @@ interface GeneralBodyMeetingsTabProps {
   onAddMeeting: (meeting: GeneralBodyMeetingCreate) => Promise<void>;
   onUpdateMeeting: (id: number, meeting: Partial<GeneralBodyMeetingCreate>) => Promise<void>;
   onDeleteMeeting: (id: number) => Promise<void>;
+  onBroadcastMeeting?: (meeting: GeneralBodyMeeting) => void;
   isLoading: boolean;
   userRole?: UserRole;
   isGuest?: boolean;
@@ -45,6 +48,7 @@ export default function GeneralBodyMeetingsTab({
   onAddMeeting,
   onUpdateMeeting,
   onDeleteMeeting,
+  onBroadcastMeeting,
   isLoading,
   userRole = "Super Admin",
   isGuest = false,
@@ -152,15 +156,28 @@ export default function GeneralBodyMeetingsTab({
           </p>
         </div>
 
-        {canEdit && (
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-sky-500/20 transition transform active:scale-95 hover:scale-[1.02]"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Record New GBM / Meeting</span>
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onBroadcastMeeting && meetings.length > 0 && (
+            <button
+              onClick={() => onBroadcastMeeting(meetings[0])}
+              className="inline-flex items-center gap-1.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-extrabold px-3.5 sm:px-4 py-2.5 rounded-xl shadow-lg shadow-sky-600/20 border border-sky-400/40 transition transform active:scale-95"
+              title="Broadcast General Body Meeting Circular to DL Groups"
+            >
+              <Send className="w-4 h-4" />
+              <span>Broadcast to DL</span>
+            </button>
+          )}
+
+          {canEdit && (
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-sky-500/20 transition transform active:scale-95 hover:scale-[1.02]"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Record New GBM / Meeting</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -272,6 +289,17 @@ export default function GeneralBodyMeetingsTab({
 
                   {/* Actions Right */}
                   <div className="flex items-center gap-2 self-end md:self-start">
+                    {onBroadcastMeeting && (
+                      <button
+                        onClick={() => onBroadcastMeeting(m)}
+                        title="Broadcast Meeting Notice to DL"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-emerald-950/80 hover:bg-emerald-900 px-3 py-1.5 rounded-lg border border-emerald-700/80 transition"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Send to DL</span>
+                      </button>
+                    )}
+
                     {canEdit && (
                       <button
                         onClick={() => setEditingMeeting(m)}

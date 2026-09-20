@@ -15,6 +15,8 @@ import {
   Crown,
   Lock,
   Mail,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { AppUser, UserRole } from "../lib/types";
 
@@ -25,6 +27,8 @@ interface NavbarProps {
   currentUser: AppUser | null;
   onLoginSuccess: (user: AppUser) => void;
   onLogout: () => void;
+  theme?: "dark" | "light";
+  onToggleTheme?: () => void;
 }
 
 export default function Navbar({
@@ -34,6 +38,8 @@ export default function Navbar({
   currentUser,
   onLoginSuccess,
   onLogout,
+  theme = "dark",
+  onToggleTheme,
 }: NavbarProps) {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -47,7 +53,7 @@ export default function Navbar({
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
           {/* Left: Logo & Society Title */}
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-            <JaitraLogo variant="dark" />
+            <JaitraLogo variant={theme === "dark" ? "dark" : "light"} />
             <div className="hidden sm:block h-7 w-px bg-slate-800" />
             <div className="hidden sm:block truncate">
               <span className="text-xs sm:text-sm font-extrabold text-slate-100 tracking-wide truncate">
@@ -58,6 +64,27 @@ export default function Navbar({
 
           {/* Right: Desktop Actions */}
           <div className="hidden md:flex items-center gap-2 lg:gap-3">
+            {/* Theme Toggle Button */}
+            {onToggleTheme && (
+              <button
+                onClick={onToggleTheme}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition shadow-xs"
+                title={`Switch to ${theme === "dark" ? "White / Light Theme" : "Dark Theme"}`}
+              >
+                {theme === "dark" ? (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Light Mode</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Dark Mode</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {/* Email Contact */}
             <a
               href="mailto:jaitra-association-hyd@googlegroups.com"
@@ -235,6 +262,28 @@ export default function Navbar({
               <Settings className="w-4 h-4 text-amber-400" />
               <span>Dropdown &amp; System Settings</span>
             </button>
+
+            {onToggleTheme && (
+              <button
+                onClick={() => {
+                  onToggleTheme();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs rounded-xl"
+              >
+                {theme === "dark" ? (
+                  <>
+                    <Sun className="w-4 h-4 text-amber-400" />
+                    <span>Switch to White / Light Theme</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-4 h-4 text-sky-400" />
+                    <span>Switch to Dark Theme</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         )}
       </header>

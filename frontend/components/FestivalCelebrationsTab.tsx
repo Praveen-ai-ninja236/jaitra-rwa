@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import * as XLSX from "xlsx";
+import * as api from "../lib/api";
 import {
   FestivalCelebration,
   FestivalCelebrationCreate,
@@ -33,6 +35,7 @@ import {
   CheckCircle2,
   CreditCard,
   Download,
+  Upload,
   Paperclip,
   ExternalLink,
   ChevronRight,
@@ -40,6 +43,9 @@ import {
   ArrowUpDown,
   FileSpreadsheet,
   Eye,
+  Send,
+  Mail,
+  AlertCircle,
 } from "lucide-react";
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
@@ -59,6 +65,7 @@ interface FestivalCelebrationsTabProps {
   onUpdateExpenseStatus: (expenseId: number, status: string, approverName?: string) => Promise<void>;
   onDeleteExpense: (expenseId: number) => Promise<void>;
   onOpenAuditReport: () => void;
+  onBroadcastFestival?: (fest: FestivalCelebration) => void;
   isLoading: boolean;
   userRole?: UserRole;
   isGuest?: boolean;
@@ -79,6 +86,7 @@ export default function FestivalCelebrationsTab({
   onUpdateExpenseStatus,
   onDeleteExpense,
   onOpenAuditReport,
+  onBroadcastFestival,
   isLoading,
   userRole = "Super Admin",
   isGuest = false,
@@ -99,6 +107,18 @@ export default function FestivalCelebrationsTab({
   const [editingCollection, setEditingCollection] = useState<FestivalCollection | null>(null);
   const [editingExpense, setEditingExpense] = useState<FestivalExpense | null>(null);
   const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string } | null>(null);
+
+  // Excel / CSV Upload States for Collections
+  const [isCollUploadOpen, setIsCollUploadOpen] = useState(false);
+  const [collUploadRows, setCollUploadRows] = useState<any[]>([]);
+  const [isParsingColl, setIsParsingColl] = useState(false);
+  const [collUploadError, setCollUploadError] = useState<string | null>(null);
+
+  // Excel / CSV Upload States for Expenses
+  const [isExpUploadOpen, setIsExpUploadOpen] = useState(false);
+  const [expUploadRows, setExpUploadRows] = useState<any[]>([]);
+  const [isParsingExp, setIsParsingExp] = useState(false);
+  const [expUploadError, setExpUploadError] = useState<string | null>(null);
 
   // Table Filters & Sorting within Detail View
   const [collSearch, setCollSearch] = useState("");
@@ -363,6 +383,287 @@ export default function FestivalCelebrationsTab({
     }
   };
 
+  // ----------------- EXCEL / CSV BULK IMPORT & EXPORT FOR COLLECTIONS -----------------
+  const handleCollectionsFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCollUploadError(null);
+    setIsParsingColl(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawData: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (!rawData || rawData.length === 0) {
+          setCollUploadError("The uploaded file contains no rows.");
+          setIsParsingColl(false);
+          return;
+        }
+
+        const normalized = rawData.map((row: any, idx: number) => {
+          const keys = Object.keys(row);
+          const findKey = (patterns: string[]) => keys.find((k) => patterns.some((p) => k.toLowerCase().replace(/[^a-z]/g, "").includes(p)));
+
+          const towerKey = findKey(["tower", "wing", "block"]);
+          const flatKey = findKey(["flat", "flatno", "unit", "door"]);
+          const donorKey = findKey(["donor", "contributor", "name", "resident"]);
+          const amountKey = findKey(["amount", "contribution", "rupees", "inr"]);
+          const modeKey = findKey(["payment", "mode", "method", "paytype"]);
+          const refKey = findKey(["transaction", "ref", "utr", "cheque", "refno"]);
+          const dateKey = findKey(["date", "collected", "collecteddate"]);
+          const notesKey = findKey(["notes", "remarks", "comment"]);
+
+          let towerVal = towerKey ? String(row[towerKey]).trim() : "Tower A";
+          if (!towerVal.toLowerCase().includes("tower") && /^[A-F]$/i.test(towerVal)) {
+            towerVal = `Tower ${towerVal.toUpperCase()}`;
+          }
+          const flatVal = flatKey ? String(row[flatKey]).trim() : "101";
+          const donorVal = donorKey ? String(row[donorKey]).trim() : `Resident ${idx + 1}`;
+          const amountVal = amountKey ? parseFloat(String(row[amountKey]).replace(/[^0-9.]/g, "")) || 0 : 0;
+          const modeVal = modeKey ? String(row[modeKey]).trim() : "UPI";
+          const refVal = refKey ? String(row[refKey]).trim() : "";
+          const dateVal = dateKey ? String(row[dateKey]).trim() : new Date().toISOString().split("T")[0];
+          const notesVal = notesKey ? String(row[notesKey]).trim() : "Bulk Upload";
+
+          const isValid = Boolean(donorVal && amountVal > 0);
+
+          return {
+            tower: towerVal,
+            flat_no: flatVal,
+            donor_name: donorVal,
+            amount: amountVal,
+            payment_mode: modeVal,
+            transaction_ref: refVal,
+            collected_date: dateVal,
+            notes: notesVal,
+            isValid,
+          };
+        });
+
+        setCollUploadRows(normalized);
+      } catch (err: any) {
+        setCollUploadError(`Failed to parse file: ${err.message}`);
+      } finally {
+        setIsParsingColl(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleConfirmCollectionsImport = async () => {
+    if (!activeFestivalDetail) return;
+    const validRows = collUploadRows.filter((r) => r.isValid);
+    if (validRows.length === 0) return;
+    try {
+      await api.bulkAddFestivalCollections(activeFestivalDetail.id, validRows);
+      setIsCollUploadOpen(false);
+      setCollUploadRows([]);
+      window.location.reload();
+    } catch (err: any) {
+      setCollUploadError(err.message || "Failed to import collections");
+    }
+  };
+
+  const handleDownloadSampleCollectionsTemplate = () => {
+    const sample = [
+      {
+        "Tower": "Tower A",
+        "Flat_No": "101",
+        "Donor_Name": "Rajesh Sharma",
+        "Amount": 1500,
+        "Payment_Mode": "UPI",
+        "Transaction_Ref": "UPI/48291039",
+        "Collected_Date": new Date().toISOString().split("T")[0],
+        "Notes": "Pooja & Annadanam sponsor",
+      },
+      {
+        "Tower": "Tower B",
+        "Flat_No": "502",
+        "Donor_Name": "Priya Varma",
+        "Amount": 2000,
+        "Payment_Mode": "UPI",
+        "Transaction_Ref": "UPI/98124012",
+        "Collected_Date": new Date().toISOString().split("T")[0],
+        "Notes": "Festival Contribution",
+      },
+      {
+        "Tower": "Tower C",
+        "Flat_No": "1204",
+        "Donor_Name": "Vikram Patel",
+        "Amount": 5000,
+        "Payment_Mode": "Net Banking",
+        "Transaction_Ref": "NEFT/882190",
+        "Collected_Date": new Date().toISOString().split("T")[0],
+        "Notes": "Maha Prasadam Sponsor",
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sample);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Collections_Template");
+    XLSX.writeFile(wb, "Jaitra_Festival_Collections_Template.xlsx");
+  };
+
+  const handleExportCollections = () => {
+    if (!activeFestivalDetail) return;
+    const data = filteredCollections.map((c) => ({
+      "Tower": c.tower,
+      "Flat No": c.flat_no,
+      "Donor Name": c.donor_name,
+      "Amount (₹)": c.amount,
+      "Payment Mode": c.payment_mode,
+      "Transaction Ref": c.transaction_ref || "",
+      "Collected Date": c.collected_date,
+      "Receipt Link": c.receipt_url || "",
+      "Notes": c.notes || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Collections");
+    XLSX.writeFile(wb, `${activeFestivalDetail.festival_name}_Collections.xlsx`);
+  };
+
+  // ----------------- EXCEL / CSV BULK IMPORT & EXPORT FOR EXPENSES -----------------
+  const handleExpensesFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExpUploadError(null);
+    setIsParsingExp(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawData: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (!rawData || rawData.length === 0) {
+          setExpUploadError("The uploaded file contains no rows.");
+          setIsParsingExp(false);
+          return;
+        }
+
+        const normalized = rawData.map((row: any, idx: number) => {
+          const keys = Object.keys(row);
+          const findKey = (patterns: string[]) => keys.find((k) => patterns.some((p) => k.toLowerCase().replace(/[^a-z]/g, "").includes(p)));
+
+          const titleKey = findKey(["expensetitle", "title", "item", "particulars", "description"]);
+          const catKey = findKey(["category", "expensehead", "type"]);
+          const amountKey = findKey(["amount", "cost", "total", "rupees", "inr"]);
+          const vendorKey = findKey(["vendor", "contractor", "supplier", "payee"]);
+          const modeKey = findKey(["paymentmode", "mode", "payment", "method"]);
+          const dateKey = findKey(["billdate", "date", "invoicedate"]);
+          const approverKey = findKey(["designatedapprover", "approver", "approvedby", "approvername"]);
+
+          const titleVal = titleKey ? String(row[titleKey]).trim() : `Expense Item ${idx + 1}`;
+          const catVal = catKey ? String(row[catKey]).trim() : "General";
+          const amountVal = amountKey ? parseFloat(String(row[amountKey]).replace(/[^0-9.]/g, "")) || 0 : 0;
+          const vendorVal = vendorKey ? String(row[vendorKey]).trim() : "";
+          const modeVal = modeKey ? String(row[modeKey]).trim() : "UPI";
+          const dateVal = dateKey ? String(row[dateKey]).trim() : new Date().toISOString().split("T")[0];
+          const approverVal = approverKey ? String(row[approverKey]).trim() : "Treasurer";
+
+          const isValid = Boolean(titleVal && amountVal > 0);
+
+          return {
+            title: titleVal,
+            category: catVal,
+            amount: amountVal,
+            vendor_name: vendorVal,
+            payment_mode: modeVal,
+            bill_date: dateVal,
+            approver_name: approverVal,
+            approver_role: "Treasurer",
+            approval_status: "Approved",
+            audit_evidence_notes: "Bulk Uploaded via Excel",
+            isValid,
+          };
+        });
+
+        setExpUploadRows(normalized);
+      } catch (err: any) {
+        setExpUploadError(`Failed to parse file: ${err.message}`);
+      } finally {
+        setIsParsingExp(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleConfirmExpensesImport = async () => {
+    if (!activeFestivalDetail) return;
+    const validRows = expUploadRows.filter((r) => r.isValid);
+    if (validRows.length === 0) return;
+    try {
+      await api.bulkAddFestivalExpenses(activeFestivalDetail.id, validRows);
+      setIsExpUploadOpen(false);
+      setExpUploadRows([]);
+      window.location.reload();
+    } catch (err: any) {
+      setExpUploadError(err.message || "Failed to import expenses");
+    }
+  };
+
+  const handleDownloadSampleExpensesTemplate = () => {
+    const sample = [
+      {
+        "Expense Title / Item *": "Mandapam Sound System & Mic Rental",
+        "Category *": "Sound & Light",
+        "Amount (₹) *": 12500,
+        "Vendor / Contractor": "Sri Balaji Audio & Lights",
+        "Payment Mode": "UPI",
+        "Bill Date": new Date().toISOString().split("T")[0],
+        "Designated Approver": "Vikram Patel",
+      },
+      {
+        "Expense Title / Item *": "Flower Garland & Stage Pooja Decoration",
+        "Category *": "Decor & Flowers",
+        "Amount (₹) *": 18000,
+        "Vendor / Contractor": "Ganesh Flower Decorators",
+        "Payment Mode": "Bank Transfer",
+        "Bill Date": new Date().toISOString().split("T")[0],
+        "Designated Approver": "Treasurer",
+      },
+      {
+        "Expense Title / Item *": "Pooja Samagri, Homa Fruits & Priest Dakshina",
+        "Category *": "Pooja & Rituals",
+        "Amount (₹) *": 15000,
+        "Vendor / Contractor": "Sri Gayatri Pooja Stores",
+        "Payment Mode": "Cash",
+        "Bill Date": new Date().toISOString().split("T")[0],
+        "Designated Approver": "Vikram Patel",
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sample);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Expenses_Template");
+    XLSX.writeFile(wb, "Jaitra_Festival_Expenses_Template.xlsx");
+  };
+
+  const handleExportExpenses = () => {
+    if (!activeFestivalDetail) return;
+    const data = filteredExpenses.map((e) => ({
+      "Expense Title / Item": e.title,
+      "Category": e.category,
+      "Amount (₹)": e.amount,
+      "Vendor / Contractor": e.vendor_name || "",
+      "Payment Mode": e.payment_mode || "UPI",
+      "Bill Date": e.bill_date,
+      "Designated Approver": e.approver_name,
+      "Approval Status": e.approval_status,
+      "Audit Invoice URL": e.invoice_url || "",
+      "Audit Notes": e.audit_evidence_notes || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Expenses");
+    XLSX.writeFile(wb, `${activeFestivalDetail.festival_name}_Expenses_Audit.xlsx`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Controls */}
@@ -377,16 +678,28 @@ export default function FestivalCelebrationsTab({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Send Broadcast to DL Button */}
+          {onBroadcastFestival && festivals.length > 0 && (
+            <button
+              onClick={() => onBroadcastFestival(festivals[0])}
+              className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-extrabold px-3.5 sm:px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 border border-emerald-400/40 transition transform active:scale-95"
+              title="Broadcast Festival Celebration Circular to DL Group"
+            >
+              <Send className="w-4 h-4" />
+              <span>Broadcast to DL</span>
+            </button>
+          )}
+
           {/* Download Audit Report Button */}
           {!isGuest && (
             <button
               onClick={onOpenAuditReport}
-              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold px-3.5 sm:px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition transform active:scale-95"
+              className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2.5 rounded-xl border border-slate-700 transition"
               title="Download Comprehensive Society Audit Statement"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Download Audit Report</span>
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>Audit Report</span>
             </button>
           )}
 
@@ -468,6 +781,19 @@ export default function FestivalCelebrationsTab({
 
                     {canEdit && (
                       <div className="flex items-center gap-1.5">
+                        {onBroadcastFestival && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onBroadcastFestival(fest);
+                            }}
+                            title="Broadcast Festival to DL Groups"
+                            className="text-emerald-400 hover:text-white p-1.5 bg-emerald-950/80 hover:bg-emerald-900 rounded-lg border border-emerald-800/80 transition flex items-center gap-1 text-[11px] font-bold"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Send to DL</span>
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -801,7 +1127,7 @@ export default function FestivalCelebrationsTab({
                 )}
 
                 {/* Collections Table Toolbar */}
-                <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900 rounded-xl border border-slate-800 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-900 rounded-xl border border-slate-800 text-xs">
                   <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                     <Search className="w-3.5 h-3.5 text-slate-400" />
                     <input
@@ -813,11 +1139,11 @@ export default function FestivalCelebrationsTab({
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <select
                       value={collTowerFilter}
                       onChange={(e) => setCollTowerFilter(e.target.value)}
-                      className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs border border-slate-700"
+                      className="bg-slate-800 text-slate-200 px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                     >
                       <option value="All">All Towers</option>
                       {defaultTowers.map((t) => (
@@ -828,13 +1154,35 @@ export default function FestivalCelebrationsTab({
                     <select
                       value={collPaymentFilter}
                       onChange={(e) => setCollPaymentFilter(e.target.value)}
-                      className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs border border-slate-700"
+                      className="bg-slate-800 text-slate-200 px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                     >
                       <option value="All">All Modes</option>
                       {defaultPaymentModes.map((m) => (
                         <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
+
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCollUploadOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 rounded-lg border border-emerald-700/80 font-bold transition shadow-xs"
+                        title="Upload Collections from Excel / CSV Sheet"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload Sheet</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleExportCollections}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 font-bold transition shadow-xs"
+                      title="Export all collections for this festival to Excel"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Export</span>
+                    </button>
                   </div>
                 </div>
 
@@ -1070,7 +1418,7 @@ export default function FestivalCelebrationsTab({
                 )}
 
                 {/* Expenses Table Toolbar */}
-                <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900 rounded-xl border border-slate-800 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-900 rounded-xl border border-slate-800 text-xs">
                   <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                     <Search className="w-3.5 h-3.5 text-slate-400" />
                     <input
@@ -1082,11 +1430,11 @@ export default function FestivalCelebrationsTab({
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <select
                       value={expCategoryFilter}
                       onChange={(e) => setExpCategoryFilter(e.target.value)}
-                      className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs border border-slate-700"
+                      className="bg-slate-800 text-slate-200 px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                     >
                       <option value="All">All Categories</option>
                       {defaultExpenseCategories.map((c) => (
@@ -1097,13 +1445,35 @@ export default function FestivalCelebrationsTab({
                     <select
                       value={expStatusFilter}
                       onChange={(e) => setExpStatusFilter(e.target.value)}
-                      className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs border border-slate-700"
+                      className="bg-slate-800 text-slate-200 px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                     >
                       <option value="All">All Statuses</option>
                       <option value="Approved">Approved</option>
                       <option value="Pending">Pending</option>
                       <option value="Rejected">Rejected</option>
                     </select>
+
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => setIsExpUploadOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 rounded-lg border border-rose-700/80 font-bold transition shadow-xs"
+                        title="Upload Expenses from Excel / CSV Sheet"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload Sheet</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleExportExpenses}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 font-bold transition shadow-xs"
+                      title="Export all expenses for this festival to Excel"
+                    >
+                      <Download className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Export</span>
+                    </button>
                   </div>
                 </div>
 
@@ -1706,6 +2076,218 @@ export default function FestivalCelebrationsTab({
         url={previewDoc?.url}
         title={previewDoc?.title}
       />
+
+      {/* ----------------- COLLECTIONS BULK UPLOAD MODAL ----------------- */}
+      <Modal
+        isOpen={isCollUploadOpen}
+        onClose={() => setIsCollUploadOpen(false)}
+        title={`Upload Collections via Excel / CSV: ${activeFestivalDetail?.festival_name || ""}`}
+        maxWidth="xl"
+      >
+        <div className="space-y-4 text-xs text-slate-200">
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-white">Expected Sheet Columns:</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-mono text-emerald-300">
+                Tower, Flat_No, Donor_Name, Amount, Payment_Mode, Transaction_Ref, Collected_Date, Notes
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleDownloadSampleCollectionsTemplate}
+              className="px-3.5 py-2 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl border border-emerald-800/80 flex items-center gap-1.5 shadow shrink-0"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download Template (.xlsx)</span>
+            </button>
+          </div>
+
+          <div className="border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-6 text-center bg-slate-950/60 transition cursor-pointer">
+            <input
+              type="file"
+              accept=".xlsx, .xls, .csv"
+              onChange={handleCollectionsFileUpload}
+              className="hidden"
+              id="coll-file-upload"
+            />
+            <label htmlFor="coll-file-upload" className="cursor-pointer block space-y-2">
+              <Upload className="w-8 h-8 text-emerald-400 mx-auto" />
+              <p className="font-bold text-sm text-white">
+                Click or drag Excel / CSV collections file here
+              </p>
+              <p className="text-[11px] text-slate-500">Supports .xlsx, .xls, .csv files</p>
+            </label>
+          </div>
+
+          {collUploadError && (
+            <div className="p-3 bg-rose-950/80 border border-rose-800 rounded-xl text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{collUploadError}</span>
+            </div>
+          )}
+
+          {collUploadRows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-emerald-400">
+                  ✓ Found {collUploadRows.filter((r) => r.isValid).length} valid donor contribution records
+                </span>
+                <span className="text-slate-400">Total rows: {collUploadRows.length}</span>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
+                <table className="w-full text-left text-[11px]">
+                  <thead>
+                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                      <th className="p-2">Tower &amp; Flat</th>
+                      <th className="p-2">Donor Name</th>
+                      <th className="p-2">Amount (₹)</th>
+                      <th className="p-2">Payment Mode</th>
+                      <th className="p-2">Transaction Ref</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {collUploadRows.slice(0, 15).map((row, idx) => (
+                      <tr key={idx} className={row.isValid ? "" : "bg-rose-950/20 text-rose-300"}>
+                        <td className="p-2 font-mono">{row.tower} - {row.flat_no}</td>
+                        <td className="p-2 font-bold">{row.donor_name}</td>
+                        <td className="p-2 font-mono text-emerald-400 font-bold">₹ {Number(row.amount).toLocaleString("en-IN")}</td>
+                        <td className="p-2">{row.payment_mode}</td>
+                        <td className="p-2 font-mono text-slate-400">{row.transaction_ref || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsCollUploadOpen(false)}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={collUploadRows.length === 0}
+              onClick={handleConfirmCollectionsImport}
+              className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs rounded-xl shadow disabled:opacity-50"
+            >
+              Import {collUploadRows.filter((r) => r.isValid).length} Collections to Live Database
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ----------------- EXPENSES BULK UPLOAD MODAL ----------------- */}
+      <Modal
+        isOpen={isExpUploadOpen}
+        onClose={() => setIsExpUploadOpen(false)}
+        title={`Upload Expenses Audit Vouchers: ${activeFestivalDetail?.festival_name || ""}`}
+        maxWidth="xl"
+      >
+        <div className="space-y-4 text-xs text-slate-200">
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-white">Expected Columns (as per Association format):</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-mono text-rose-300">
+                Expense Title / Item *, Category *, Amount (₹) *, Vendor / Contractor, Payment Mode, Bill Date, Designated Approver
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleDownloadSampleExpensesTemplate}
+              className="px-3.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold rounded-xl border border-rose-800/80 flex items-center gap-1.5 shadow shrink-0"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download Template (.xlsx)</span>
+            </button>
+          </div>
+
+          <div className="border-2 border-dashed border-slate-700 hover:border-rose-500 rounded-2xl p-6 text-center bg-slate-950/60 transition cursor-pointer">
+            <input
+              type="file"
+              accept=".xlsx, .xls, .csv"
+              onChange={handleExpensesFileUpload}
+              className="hidden"
+              id="exp-file-upload"
+            />
+            <label htmlFor="exp-file-upload" className="cursor-pointer block space-y-2">
+              <Upload className="w-8 h-8 text-rose-400 mx-auto" />
+              <p className="font-bold text-sm text-white">
+                Click or drag Excel / CSV expenses file here
+              </p>
+              <p className="text-[11px] text-slate-500">Supports .xlsx, .xls, .csv files</p>
+            </label>
+          </div>
+
+          {expUploadError && (
+            <div className="p-3 bg-rose-950/80 border border-rose-800 rounded-xl text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{expUploadError}</span>
+            </div>
+          )}
+
+          {expUploadRows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-rose-400">
+                  ✓ Found {expUploadRows.filter((r) => r.isValid).length} valid expense vouchers
+                </span>
+                <span className="text-slate-400">Total rows: {expUploadRows.length}</span>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
+                <table className="w-full text-left text-[11px]">
+                  <thead>
+                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                      <th className="p-2">Expense Title / Item</th>
+                      <th className="p-2">Category</th>
+                      <th className="p-2">Amount (₹)</th>
+                      <th className="p-2">Vendor / Contractor</th>
+                      <th className="p-2">Payment Mode</th>
+                      <th className="p-2">Designated Approver</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {expUploadRows.slice(0, 15).map((row, idx) => (
+                      <tr key={idx} className={row.isValid ? "" : "bg-rose-950/20 text-rose-300"}>
+                        <td className="p-2 font-bold">{row.title}</td>
+                        <td className="p-2">{row.category}</td>
+                        <td className="p-2 font-mono text-rose-400 font-bold">₹ {Number(row.amount).toLocaleString("en-IN")}</td>
+                        <td className="p-2">{row.vendor_name || "—"}</td>
+                        <td className="p-2">{row.payment_mode}</td>
+                        <td className="p-2 font-bold text-slate-300">{row.approver_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsExpUploadOpen(false)}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={expUploadRows.length === 0}
+              onClick={handleConfirmExpensesImport}
+              className="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-xs rounded-xl shadow disabled:opacity-50"
+            >
+              Import {expUploadRows.filter((r) => r.isValid).length} Expenses to Audit Roster
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

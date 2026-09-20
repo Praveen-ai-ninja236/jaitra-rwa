@@ -32,6 +32,8 @@ import {
   FolderOpen,
   ArrowLeft,
   Flame,
+  Send,
+  Mail,
 } from "lucide-react";
 import Modal from "./Modal";
 import DynamicSelect from "./DynamicSelect";
@@ -43,6 +45,7 @@ interface IssuesTrackerTabProps {
   onAddIssue: (issue: CommunityIssueCreate) => Promise<void>;
   onUpdateIssue: (id: number, issue: Partial<CommunityIssueCreate>) => Promise<void>;
   onDeleteIssue: (id: number) => Promise<void>;
+  onBroadcastIssue?: (issue: CommunityIssue) => void;
   isLoading: boolean;
   userRole?: UserRole;
   dropdownMap?: DropdownCategoryMap;
@@ -54,6 +57,7 @@ export default function IssuesTrackerTab({
   onAddIssue,
   onUpdateIssue,
   onDeleteIssue,
+  onBroadcastIssue,
   isLoading,
   userRole = "Super Admin",
   dropdownMap = {},
